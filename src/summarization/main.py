@@ -5,6 +5,7 @@ from sentence_transformers import SentenceTransformer
 
 from structure_analsis.java.java_import_analyzer import JavaImportAnalyzer
 from structure_analsis.java.java_method_analyzer import JavaMethodAnalyzer
+from structure_analsis.python.ENRE_py.enre.__main__ import main as enre_main
 from structure_analsis.python.python_analsis import PythonMethodAnalyzer
 
 from model.models import Function, method_Cluster
@@ -60,17 +61,20 @@ def main(project_root: str, output_dir: str):
         method_analyzer.analyze_project(project_root, output_dir)
     elif has_python:
         print("分析Python项目")
-        method_analyzer = PythonMethodAnalyzer()
-        method_analyzer.analyze_project(project_root, output_dir)
+        # 使用ENRE-py分析Python项目
+        enre_main([project_root, output_dir])
+        # method_analyzer = PythonMethodAnalyzer()
+        # method_analyzer.analyze_project(project_root, output_dir)
     else:
         print("未找到支持的代码文件（.java 或 .py）")
         return
 
     # 生成函数描述,可选择用函数名(function_name)/CodeT5(code_t5)/LLM(llm)生成
-    functions = method_summary(output_dir, strategy="function_name")
+    language = "python" if has_python else "java"
+    functions = method_summary(output_dir, strategy="function_name", language=language)
     # 生成文件描述，在这里固定使用文件名
     files = create_directory_summary(project_root)
-    add_functions_to_files(files, functions)
+    add_functions_to_files(files, functions, language=language)
     # 可选择是否并行，在服务器上运行不确定是否可行，建议关闭
     is_parallel = False
 
@@ -90,7 +94,7 @@ def main(project_root: str, output_dir: str):
     best_gamma, best_labels, results = find_best_resolution(
         files,
         a=0.5,
-        n_points=30,
+        n_points=25,
         gamma_min=0.01, gamma_max=0.4,
         seeds_per_gamma=8,
         use_knn=True, knn_k=20,
@@ -145,7 +149,7 @@ def main(project_root: str, output_dir: str):
     feature_list, summary = cluster_all_functions_to_features(
         method_clusters,
         weight_parameter=0.25,
-        gamma_min=0.01, gamma_max=0.5, n_points=40,
+        gamma_min=0.01, gamma_max=0.5, n_points=24,
         seeds_per_gamma=8,
         use_knn=True, knn_k=20,
         use_threshold=False, threshold_tau=0.0,

@@ -388,6 +388,7 @@ def evaluate_module_and_pick_best(
     )
 
     best_stats = all_results[best_idx]
+    
     return ModuleBestResult(
         module_cluster_id=module_cluster_id,
         m_funcs=m,
@@ -450,8 +451,9 @@ def cluster_all_functions_to_features(
         )
         funcs = getattr(mc, "cluster_func_list", [])
         labels = res.best_labels
+        # 合并小簇
         labels = merge_tiny_clusters(labels, W, min_size=2, min_accept_sim=0.0, penalize_large=True, max_passes=5)
-
+        
         # 组装 Feature
         clusters: Dict[int, Feature] = {}
         for idx_func, cid in enumerate(labels):
