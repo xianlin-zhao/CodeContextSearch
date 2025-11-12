@@ -71,7 +71,7 @@ def main(project_root: str, output_dir: str):
 
     # 生成函数描述,可选择用函数名(function_name)/CodeT5(code_t5)/LLM(llm)生成
     language = "python" if has_python else "java"
-    functions = method_summary(output_dir, strategy="function_name", language=language)
+    functions = method_summary(output_dir, strategy="function_file_name", language=language)
     # 生成文件描述，在这里固定使用文件名
     files = create_directory_summary(project_root)
     add_functions_to_files(files, functions, language=language)
@@ -149,7 +149,7 @@ def main(project_root: str, output_dir: str):
     feature_list, summary = cluster_all_functions_to_features(
         method_clusters,
         weight_parameter=0.25,
-        gamma_min=0.01, gamma_max=0.5, n_points=24,
+        gamma_min=0.05, gamma_max=0.5, n_points=24,
         seeds_per_gamma=8,
         use_knn=True, knn_k=20,
         use_threshold=False, threshold_tau=0.0,
@@ -184,8 +184,9 @@ def main(project_root: str, output_dir: str):
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
-    project_root = "/data/lowcode_public/DevEval/Source_Code/Internet/boto"
-    output_dir = os.path.join(here, "out/boto")
+    project_root = "/data/zxl/Search2026/Datasets/myDevEval/Internet/boto"
+    # output_dir = os.path.join(here, "out/boto")
+    output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112"
     main(
         project_root=project_root,
         output_dir=output_dir

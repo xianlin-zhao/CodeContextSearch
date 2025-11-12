@@ -270,6 +270,16 @@ def function_name_summary(functions: List[Function]) -> List[Function]:
         function.func_desc = function.func_fullName
     return functions
 
+def function_file_name_summary(functions: List[Function]) -> List[Function]:
+    for function in functions:
+        func_name = function.func_name
+        function_parameters = function.func_fullName.split("(")[1]
+        function_parameters = "(" + function_parameters
+        file_name = function.func_file
+        function.func_desc = file_name + "." + func_name + function_parameters
+        print(function.func_desc)  # DEBUG
+    return functions
+
 def code_t5_summary(functions: List[Function], language:str="python") -> List[Function]:
     tokenizer = RobertaTokenizer.from_pretrained('Salesforce/codet5-base-multi-sum')
     model = T5ForConditionalGeneration.from_pretrained('Salesforce/codet5-base-multi-sum')
@@ -379,6 +389,8 @@ def method_summary(output_dir: str, strategy: str, language:str="python") -> Lis
 
     if strategy == "function_name":
         return function_name_summary(functions)
+    elif strategy == "function_file_name":
+        return function_file_name_summary(functions)
     elif strategy == "code_t5":
         return code_t5_summary(functions, language=language)
     elif strategy == "llm":
