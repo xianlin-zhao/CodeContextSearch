@@ -12,10 +12,17 @@ from model.models import Function, method_Cluster
 from utils.file_operations import create_directory_summary, add_functions_to_files
 from utils.file_clustering import find_best_resolution, save_to_file_cluster
 from utils.function_clustering import cluster_all_functions_to_features, set_func_adj_matrix
-from utils.feature_generation import generate_feature_description, merge_features_by_method_cluster, features_to_csv
+from utils.feature_generation import generate_feature_description, merge_features_by_method_cluster, features_to_csv, generate_feature_description_parallel
 from utils.method_summary import method_summary
 import json
 import logging
+
+
+# 聚类时语义信息采用的策略，目前有：function_name, function_file_name, code_t5, llm
+STRATEGY = "code_t5"
+# 生成feature时是否并发调用大模型
+IS_PARALLEL = True
+
 
 def main(project_root: str, output_dir: str):
     # 可选择本地地址或者网页地址（github地址），这里使用本地地址
@@ -71,12 +78,12 @@ def main(project_root: str, output_dir: str):
 
     # 生成函数描述,可选择用函数名(function_name)/CodeT5(code_t5)/LLM(llm)生成
     language = "python" if has_python else "java"
-    functions = method_summary(output_dir, strategy="function_file_name", language=language)
+    functions = method_summary(output_dir, strategy=STRATEGY, language=language)
     # 生成文件描述，在这里固定使用文件名
     files = create_directory_summary(project_root)
     add_functions_to_files(files, functions, language=language)
     # 可选择是否并行，在服务器上运行不确定是否可行，建议关闭
-    is_parallel = False
+    is_parallel = IS_PARALLEL
 
     # 打印一些文件和函数信息
     for file in files[:5]:
@@ -173,8 +180,12 @@ def main(project_root: str, output_dir: str):
     save_results_to_file(feature_list, summary, 'cluster_results.json')
     
     modelname = "deepseek-v3"
+
     # 生成特征描述
-    generate_feature_description(feature_list, modelname=modelname)
+    if is_parallel:
+        generate_feature_description_parallel(feature_list, modelname=modelname, max_workers=8)
+    else:
+        generate_feature_description(feature_list, modelname=modelname)
 
     # 合并特征
     merge_features_by_method_cluster(feature_list, method_clusters, modelname=modelname)
@@ -184,9 +195,11 @@ def main(project_root: str, output_dir: str):
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
+    # 待总结的项目路径
     project_root = "/data/zxl/Search2026/Datasets/myDevEval/Internet/boto"
+    # repoSummary结果的保存路径
     # output_dir = os.path.join(here, "out/boto")
-    output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112"
+    output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112_codet5"
     main(
         project_root=project_root,
         output_dir=output_dir

@@ -6,7 +6,9 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
-FEATURE_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/mrjob_functionName_features.csv"
+# 生成的feature路径
+FEATURE_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112/features.csv"
+# DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
 
@@ -31,8 +33,11 @@ def analyze_project(project_path, output_path):
     # Step 2: Find similar clusters
     df = pd.read_csv(FEATURE_CSV)
     clusters = df.groupby('id')['desc'].first().reset_index()
-    # 提取clusters中所有的method_name
-    method_names = df['method_name'].str.split('(').str[0].unique().tolist()
+    # 规范化 method_name：去掉参数，只保留第一个点后的部分，例如 mrjob.hadoop.main -> hadoop.main
+    base_names = df['method_name'].astype(str).str.split('(').str[0]
+    df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
+    method_names = df['method_name_norm'].unique().tolist()
+    print(method_names)
 
     #model = SentenceTransformer('all-mpnet-base-v2')
     model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -72,33 +77,33 @@ def analyze_project(project_path, output_path):
             top_1_cluster_ids = clusters.iloc[top_1_indices]['id'].tolist()
             top_1_methods = []
             for cluster_id in top_1_cluster_ids:
-                top_1_methods.extend(df[df['id'] == cluster_id]['method_name'].tolist())
+                top_1_methods.extend(df[df['id'] == cluster_id]['method_name_norm'].tolist())
             top_1_pred += len(top_1_methods)
             for dep in deps:
                 for method in top_1_methods:
-                    if dep in method:
+                    if dep == method:
                         top_1_match += 1
                         break
             # 计算top3：先从clusters获取id，再从原始df中获取method_name
             top_3_cluster_ids = clusters.iloc[top_3_indices]['id'].tolist()
             top_3_methods = []
             for cluster_id in top_3_cluster_ids:
-                top_3_methods.extend(df[df['id'] == cluster_id]['method_name'].tolist())
+                top_3_methods.extend(df[df['id'] == cluster_id]['method_name_norm'].tolist())
             top_3_pred += len(top_3_methods)
             for dep in deps:
                 for method in top_3_methods:
-                    if dep in method:
+                    if dep == method:
                         top_3_match += 1
                         break
             # 计算top5：先从clusters获取id，再从原始df中获取method_name
             top_5_cluster_ids = clusters.iloc[top_5_indices]['id'].tolist()
             top_5_methods = []
             for cluster_id in top_5_cluster_ids:
-                top_5_methods.extend(df[df['id'] == cluster_id]['method_name'].tolist())
+                top_5_methods.extend(df[df['id'] == cluster_id]['method_name_norm'].tolist())
             top_5_pred += len(top_5_methods)
             for dep in deps:
                 for method in top_5_methods:
-                    if dep in method:
+                    if dep == method:
                         top_5_match += 1
                         break
             
@@ -185,7 +190,8 @@ def analyze_project(project_path, output_path):
 
 
 if __name__ == "__main__":
-    # project_path = "Internet/boto"  # Configure this
-    project_path = "/data/lowcode_public/DevEval/Source_Code/System/mrjob"
+    # 项目源代码的路径
+    project_path = "/data/lowcode_public/DevEval/Source_Code/Internet/boto"
+    # 结果的保存路径（目前没用上）
     output_path = "/data/zxl/Search2026/outputData/devEvalSearchOut"
     analyze_project(project_path, output_path)

@@ -42,6 +42,7 @@ def add_functions_to_files(files: List[File], functions: List[Function], languag
             # 检查文件代码中是否包含函数代码
             for file in files:
                 if function.func_code in file.file_code:
+                    function.func_file = file.file_name
                     file.func_list.append(function)
                     break
         elif language == "java":

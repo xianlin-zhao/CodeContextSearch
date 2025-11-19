@@ -272,49 +272,148 @@ def function_name_summary(functions: List[Function]) -> List[Function]:
 
 def function_file_name_summary(functions: List[Function]) -> List[Function]:
     for function in functions:
-        func_name = function.func_name
-        function_parameters = function.func_fullName.split("(")[1]
-        function_parameters = "(" + function_parameters
-        file_name = function.func_file
-        function.func_desc = file_name + "." + func_name + function_parameters
+        # 使用文件名+函数名+参数名
+        params = '('+function.func_fullName.split("(")[-1]
+        method_name = function.func_fullName.split("(")[0].split(".")[-1]
+        file_name = function.func_fullName.split("(")[0].split(".")[-2]
+        function.func_desc = f"{file_name}.{method_name}{params}"
         print(function.func_desc)  # DEBUG
     return functions
 
-def code_t5_summary(functions: List[Function], language:str="python") -> List[Function]:
+def code_t5_summary_all_gen(functions: List[Function], language: str = "python", batch_size: int = 16) -> List[Function]:
+    import torch
     tokenizer = RobertaTokenizer.from_pretrained('Salesforce/codet5-base-multi-sum')
     model = T5ForConditionalGeneration.from_pretrained('Salesforce/codet5-base-multi-sum')
-    
-    for function in functions:
-        function.func_desc = extract_comments_from_code(function.func_code, language=language)
-        if function.func_desc != "":
-            continue
-        # 确保func_code是字符串类型
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    # 收集所有函数，统一进入批量生成；为空代码用函数名兜底作为模型输入
+    to_generate_indices: List[int] = []
+    texts: List[str] = []
+    max_length = 512  # CodeT5 常见输入上限
+
+    for idx, function in enumerate(functions):
         text = function.func_code
         if not isinstance(text, str):
-            if text is None:
-                text = ""
-            else:
-                text = str(text)
+            text = "" if text is None else str(text)
+        if not text.strip():
+            # 仍然调用模型，但使用函数名作为输入提示
+            text = function.func_name or ""
+        to_generate_indices.append(idx)
+        texts.append(text)
+
+    if not texts:
+        return functions
+
+    # 发出长度截断警告（更准确地以不加 special tokens 的长度为准）
+    lengths = tokenizer(texts, add_special_tokens=False)["input_ids"]
+    for i, ids in enumerate(lengths):
+        if len(ids) > max_length:
+            fn = functions[to_generate_indices[i]].func_name
+            print(f"警告: 函数 {fn} 的代码过长 ({len(ids)} tokens)，已截断至 {max_length} tokens")
+
+    # 按 batch 编码、推理与解码
+    model.eval()
+    with torch.no_grad():
+        for start in range(0, len(texts), batch_size):
+            end = start + batch_size
+            batch_texts = texts[start:end]
+            batch_indices = to_generate_indices[start:end]
+
+            enc = tokenizer(
+                batch_texts,
+                return_tensors="pt",
+                truncation=True,
+                padding=True,
+                max_length=max_length,
+            )
+            input_ids = enc["input_ids"].to(device)
+            attention_mask = enc.get("attention_mask", None)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
+
+            outputs = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_length=40,
+            )
+
+            decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            for i, desc in enumerate(decoded):
+                functions[batch_indices[i]].func_desc = desc
+                print(desc)
+
+    return functions
+
+def code_t5_summary(functions: List[Function], language: str = "python", batch_size: int = 16) -> List[Function]:
+    import torch
+    tokenizer = RobertaTokenizer.from_pretrained('Salesforce/codet5-base-multi-sum')
+    model = T5ForConditionalGeneration.from_pretrained('Salesforce/codet5-base-multi-sum')
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    # 先用注释提取器填充，收集仍需生成的函数索引与文本
+    to_generate_indices: List[int] = []
+    texts: List[str] = []
+    max_length = 512  # CodeT5 常见输入上限
+
+    for idx, function in enumerate(functions):
+        function.func_desc = extract_comments_from_code(function.func_code, language=language)
+        if function.func_desc:
+            continue
+        text = function.func_code
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
         if not text or not text.strip():
+            # 空代码时使用函数名兜底
             function.func_desc = function.func_name
             continue
-        # 如果text超长则截断
-        # CodeT5模型的最大输入长度通常是512 tokens
-        max_length = 512
-        # 先检查原始文本长度（不添加special tokens，更准确）
-        temp_encoded = tokenizer(text, add_special_tokens=False)
-        original_length = len(temp_encoded['input_ids'])
-        
-        # 使用truncation参数自动截断超长文本
-        encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length)
-        input_ids = encoded.input_ids
-        
-        # 如果原始文本被截断，给出警告
-        if original_length > max_length:
-            print(f"警告: 函数 {function.func_name} 的代码过长 ({original_length} tokens)，已截断至 {max_length} tokens")
+        to_generate_indices.append(idx)
+        texts.append(text)
 
-        generated_ids = model.generate(input_ids, max_length=40)
-        function.func_desc = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+    if not texts:
+        return functions
+
+    # 发出长度截断警告（更准确地以不加 special tokens 的长度为准）
+    lengths = tokenizer(texts, add_special_tokens=False)["input_ids"]
+    for i, ids in enumerate(lengths):
+        if len(ids) > max_length:
+            fn = functions[to_generate_indices[i]].func_name
+            print(f"警告: 函数 {fn} 的代码过长 ({len(ids)} tokens)，已截断至 {max_length} tokens")
+
+    # 按 batch 编码、推理与解码
+    model.eval()
+    with torch.no_grad():
+        for start in range(0, len(texts), batch_size):
+            end = start + batch_size
+            batch_texts = texts[start:end]
+            batch_indices = to_generate_indices[start:end]
+
+            enc = tokenizer(
+                batch_texts,
+                return_tensors="pt",
+                truncation=True,
+                padding=True,
+                max_length=max_length,
+            )
+            input_ids = enc["input_ids"].to(device)
+            attention_mask = enc.get("attention_mask", None)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
+
+            outputs = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_length=40,
+            )
+
+            decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            for i, desc in enumerate(decoded):
+                functions[batch_indices[i]].func_desc = desc
+                print(desc)
+
     return functions
 
 def method_summary(output_dir: str, strategy: str, language:str="python") -> List[Function]:
@@ -388,12 +487,17 @@ def method_summary(output_dir: str, strategy: str, language:str="python") -> Lis
                 function.func_desc = function.func_name
 
     if strategy == "function_name":
-        return function_name_summary(functions)
+        functions = function_name_summary(functions)
     elif strategy == "function_file_name":
-        return function_file_name_summary(functions)
+        functions = function_file_name_summary(functions)
     elif strategy == "code_t5":
-        return code_t5_summary(functions, language=language)
+        functions = code_t5_summary_all_gen(functions, language=language)
     elif strategy == "llm":
-        return generate_function_descriptions(functions, modelname=modelname, method_adj_matrix=method_adj_matrix, language=language)
+        functions = generate_function_descriptions(functions, modelname=modelname, method_adj_matrix=method_adj_matrix, language=language)
     else:
         raise ValueError(f"Invalid strategy: {strategy}")
+    
+    # 将functions保存到CSV
+    functions_df = pd.DataFrame([function.__dict__ for function in functions])
+    functions_df.to_csv(os.path.join(output_dir, "methods_with_desc.csv"), index=False)
+    return functions
