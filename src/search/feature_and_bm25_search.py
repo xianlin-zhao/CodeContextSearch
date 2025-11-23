@@ -8,11 +8,15 @@ import numpy as np
 import re
 from rank_bm25 import BM25Okapi
 
-FEATURE_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/mrjob_functionName_features.csv"
-METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/methods.csv"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/filtered.jsonl"
+PROJECT_PATH = "Internet/boto"
+FEATURE_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1122_codet5/features.csv"
+METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1122_codet5/methods.csv"
+FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1122_codet5/filtered.jsonl"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
+
+# 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
+NEED_METHOD_NAME_NORM = True
 
 
 def analyze_project(project_path):
@@ -28,10 +32,24 @@ def analyze_project(project_path):
                 outfile.write(line)
     
     # Step 2: Find similar clusters
-    df = pd.read_csv(FEATURE_CSV)
+    df = pd.read_csv(
+        FEATURE_CSV,
+        dtype=str,
+        keep_default_na=False,
+        quoting=0,
+        engine="python",
+        on_bad_lines="skip"
+    )
     clusters = df.groupby('id')['desc'].first().reset_index()
     # 提取clusters中所有的method_name
     method_names = df['method_name'].str.split('(').str[0].unique().tolist()
+
+    if NEED_METHOD_NAME_NORM:
+        # 规范化 method_name：去掉参数，只保留第一个点后的部分，例如 mrjob.hadoop.main -> hadoop.main
+        base_names = df['method_name'].astype(str).str.split('(').str[0]
+        df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
+        method_names = df['method_name_norm'].unique().tolist()
+    print(method_names[:30])
 
     #model = SentenceTransformer('all-mpnet-base-v2')
     model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -159,5 +177,4 @@ def analyze_project(project_path):
 
 
 if __name__ == "__main__":
-    project_path = "System/mrjob"
-    analyze_project(project_path)
+    analyze_project(PROJECT_PATH)
