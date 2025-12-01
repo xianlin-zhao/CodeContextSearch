@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import numpy as np
 import igraph as ig
 import leidenalg as la
@@ -429,7 +430,7 @@ def cluster_all_functions_to_features(
     feature_list: List[Feature] = []
     per_module_summaries: List[Dict[str, Any]] = []
 
-    for mc in method_clusters:
+    for mc in tqdm(method_clusters, desc="Clustering functions into features"):
         res = evaluate_module_and_pick_best(
             mc,
             weight_parameter=weight_parameter,

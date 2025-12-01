@@ -8,17 +8,15 @@ import numpy as np
 import re
 from rank_bm25 import BM25Okapi
 
-PROJECT_PATH = "Internet/boto"
-#PROJECT_PATH = "System/mrjob"
+#PROJECT_PATH = "Internet/boto"
+PROJECT_PATH = "System/mrjob"
 
-
-# FEATURE_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/features.csv" 
-# METHODS_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
-# FILTERED_PATH = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl" 
-
-FEATURE_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/features.csv" 
-METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
-FILTERED_PATH = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl" 
+# FEATURE_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/mrjob_functionName_features.csv"
+FEATURE_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/features.csv" 
+# METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/methods.csv"
+METHODS_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
+# FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/filtered.jsonl"
+FILTERED_PATH = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl" 
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
@@ -92,10 +90,6 @@ def analyze_project(project_path):
     bm25_code = BM25Okapi(code_docs)
 
     with open(FILTERED_PATH, 'r') as f:
-        example_counter = 0
-        feature_records = []
-        sig_records = []
-        code_records = []
         top_gt = 0
 
         cluster_ks = [1, 3, 5]
@@ -119,7 +113,6 @@ def analyze_project(project_path):
             return [methods_corpus_strings[i] for i in idx]
 
         for line in f:
-            example_counter += 1
             data = json.loads(line.strip())
             deps = []
             #从数据中提取真实的依赖关系（ dependency ），这些是本次搜索的“正确答案”
@@ -158,101 +151,6 @@ def analyze_project(project_path):
                 code_metrics[k]["pred"] += len(m)
                 code_metrics[k]["match"] += sum(1 for dep in deps if any(dep in s for s in m))
 
-            feature_record = {
-                "example_id": example_counter,
-                "query": query,
-                "ground_truth": deps,
-                "feature": {}
-            }
-            for k in cluster_ks:
-                mk = methods_from_top_k_clusters(similarities, k)
-                num_pred = len(mk)
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
-                num_gt = len(deps)
-                precision = (num_match / num_pred) if num_pred > 0 else 0
-                recall = (num_match / num_gt) if num_gt > 0 else 0
-                f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-                feature_record["feature"][f"top{k}"] = {
-                    "metrics": {
-                        "P": precision,
-                        "R": recall,
-                        "F1": f1,
-                        "pred": num_pred,
-                        "match": num_match,
-                        "gt": num_gt
-                    },
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
-                }
-            feature_records.append(feature_record)
-
-            sig_record = {
-                "example_id": example_counter,
-                "query": query,
-                "ground_truth": deps,
-                "bm25_signature": {}
-            }
-            for k in sig_ks:
-                mk = bm25_topk_strings(sig_order, k)
-                num_pred = len(mk)
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
-                num_gt = len(deps)
-                precision = (num_match / num_pred) if num_pred > 0 else 0
-                recall = (num_match / num_gt) if num_gt > 0 else 0
-                f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-                sig_record["bm25_signature"][f"top{k}"] = {
-                    "metrics": {
-                        "P": precision,
-                        "R": recall,
-                        "F1": f1,
-                        "pred": num_pred,
-                        "match": num_match,
-                        "gt": num_gt
-                    },
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
-                }
-            sig_records.append(sig_record)
-
-            code_record = {
-                "example_id": example_counter,
-                "query": query,
-                "ground_truth": deps,
-                "bm25_code": {}
-            }
-            for k in sig_ks:
-                mk = bm25_topk_strings(code_order, k)
-                num_pred = len(mk)
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
-                num_gt = len(deps)
-                precision = (num_match / num_pred) if num_pred > 0 else 0
-                recall = (num_match / num_gt) if num_gt > 0 else 0
-                f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-                code_record["bm25_code"][f"top{k}"] = {
-                    "metrics": {
-                        "P": precision,
-                        "R": recall,
-                        "F1": f1,
-                        "pred": num_pred,
-                        "match": num_match,
-                        "gt": num_gt
-                    },
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
-                }
-            code_records.append(code_record)
-
-        out_dir = os.path.dirname(FILTERED_PATH)
-        feature_path = os.path.join(out_dir, "diagnostic_feature.jsonl")
-        sig_path = os.path.join(out_dir, "diagnostic_bm25_signature.jsonl")
-        code_path = os.path.join(out_dir, "diagnostic_bm25_code.jsonl")
-        with open(feature_path, "w", encoding="utf-8") as fo:
-            for rec in feature_records:
-                fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        with open(sig_path, "w", encoding="utf-8") as so:
-            for rec in sig_records:
-                so.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        with open(code_path, "w", encoding="utf-8") as co:
-            for rec in code_records:
-                co.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            # ===================== DIAGNOSTIC JSON CODE END =====================
         def safe_div(a, b):
             return (a / b) if b != 0 else 0
 
@@ -271,7 +169,7 @@ def analyze_project(project_path):
         for k in sig_ks:
             m = sig_metrics[k]["match"]
             p = sig_metrics[k]["pred"]
-            print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%, F1={(2* safe_div(m, p) * safe_div(m, top_gt) / (safe_div(m, p) + safe_div(m, top_gt)))*100:.2f}%")
+            print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%")
         print("--------------------------------")
 
         # ---- print BM25 code-based metrics ----
@@ -279,8 +177,7 @@ def analyze_project(project_path):
         for k in sig_ks:
             m = code_metrics[k]["match"]
             p = code_metrics[k]["pred"]
-            #print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%")
-            print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%, F1={(2* safe_div(m, p) * safe_div(m, top_gt) / (safe_div(m, p) + safe_div(m, top_gt)))*100:.2f}%")
+            print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%")
         print("--------------------------------")
     
     print(f"Analysis completed for {project_path}")

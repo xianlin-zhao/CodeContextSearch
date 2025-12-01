@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import numpy as np
 from typing import List
 from model.models import File, file_Cluster
@@ -58,7 +59,7 @@ def find_best_resolution(
 
     # 4) 扫描 γ：多次运行 + 指标统计
     all_results = []
-    for gamma in gamma_values:
+    for gamma in tqdm(gamma_values, desc="Scanning gamma for file clustering"):
         partitions = []
         qualities = []
         size_stats_list = []

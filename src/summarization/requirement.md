@@ -1,4 +1,3 @@
-python == 3.10.16
 javalang == 0.13.0
 jedi == 0.19.2
 leidenalg == 0.10.2

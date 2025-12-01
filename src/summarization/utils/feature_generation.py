@@ -268,30 +268,59 @@ def merge_features_by_method_cluster(features: List[Feature], method_clusters: L
             feature_list=feature_list,
             module_list=module_list
         )
-        try:
-            response = call_with_retry(lambda: get_client().chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=modelname,
-                response_format={"type": "json_object"},
-                temperature=0.3,
-                top_p=0.95,
-                frequency_penalty=0.5,
-                presence_penalty=0.2
-            ))
-            json_str = response.choices[0].message.content
-            json_str = json_str.replace("```json", "").replace("```", "")
-            result_dict = json.loads(json_str)
-            if "description" not in result_dict and isinstance(result_dict, dict):
-                result_dict = {"description": next(iter(result_dict.values()))}
-            result = module.model_validate(result_dict)
-            merged_features_des.append(result.description)
-            method_cluster.cluster_desc = result.description
-        except json.JSONDecodeError as e:
-            print(f"JSON解析失败: {e}")
-        except ValidationError as e:
-            print(f"Pydantic验证失败: {e}")
-        except Exception as e:
-            print(f"其他错误: {e}")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = call_with_retry(lambda: get_client().chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=modelname,
+                    response_format={"type": "json_object"},
+                    temperature=0.3,
+                    top_p=0.95,
+                    frequency_penalty=0.5,
+                    presence_penalty=0.2
+                ))
+                json_str = response.choices[0].message.content
+                json_str = clean_json_text(json_str)
+                result_dict = json.loads(json_str)
+
+                # Robustly find the description string from potentially nested dicts/lists
+                desc_val = result_dict
+                while isinstance(desc_val, (dict, list)):
+                    if isinstance(desc_val, dict):
+                        if 'description' in desc_val:
+                            desc_val = desc_val['description']
+                        elif len(desc_val.keys()) == 1:
+                            desc_val = next(iter(desc_val.values()))
+                        else:
+                            break  # Cannot safely determine the value, stop unpacking
+                    elif isinstance(desc_val, list) and desc_val:
+                        desc_val = desc_val[0]
+                    else:
+                        break # Empty list or unhandled type
+
+                # Ensure the final value is a string for validation
+                if not isinstance(desc_val, str):
+                    desc_val = str(desc_val)
+
+                validated_input = {"description": desc_val}
+                result = module.model_validate(validated_input)
+                merged_features_des.append(result.description)
+                method_cluster.cluster_desc = result.description
+                break  # Success, exit retry loop
+
+            except json.JSONDecodeError as e:
+                print(f"JSON解析失败 on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt + 1 == max_retries:
+                    print(f"Failed to process Module ID: {method_cluster.cluster_id} after {max_retries} attempts.")
+                else:
+                    time.sleep(1) # Wait a bit before retrying
+            except ValidationError as e:
+                print(f"Pydantic验证失败: {e}")
+                break # Pydantic errors are less likely to be transient, break loop
+            except Exception as e:
+                print(f"其他错误: {e}")
+                break # Break on other unexpected errors
         print(f"Module ID: {method_cluster.cluster_id}, Description: {method_cluster.cluster_desc}\n")
 
 def features_to_csv(features: List[Feature], method_clusters: List[method_Cluster], filename: str):

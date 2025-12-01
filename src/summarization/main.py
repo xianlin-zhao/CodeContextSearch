@@ -22,6 +22,8 @@ import logging
 STRATEGY = "code_t5"
 # 生成feature时是否并发调用大模型
 IS_PARALLEL = True
+# 是否生成特征描述
+GENERATE_DESCRIPTION = False
 
 
 def main(project_root: str, output_dir: str):
@@ -144,6 +146,10 @@ def main(project_root: str, output_dir: str):
             for function in file.func_list:
                 function.func_txt_vector = model.encode(function.func_desc).tolist()
                 func_list.append(function)
+                # 7. 创建一个“方法簇”对象 (method_Cluster)
+                #    - cluster.cluster_id: 继承自文件簇的 ID
+                #    - "": 描述暂时为空
+                #    - func_list: 包含这个文件簇下所有函数的列表
         method_cluster = method_Cluster(cluster.cluster_id, "", func_list)
         method_clusters.append(method_cluster)
     
@@ -151,12 +157,15 @@ def main(project_root: str, output_dir: str):
         log_message = f"Cluster ID: {method_cluster.cluster_id}, Functions: {[f.func_name for f in method_cluster.cluster_func_list]}"
         print(log_message)
         logging.info(log_message)
-    
+
+    print("begin to cluster all functions to features")
     # 函数聚类
     feature_list, summary = cluster_all_functions_to_features(
         method_clusters,
         weight_parameter=0.25,
-        gamma_min=0.05, gamma_max=0.5, n_points=24,
+        #gamma_min=0.05, gamma_max=0.5, n_points=24, #mrjob
+        #gamma_min=0.1, gamma_max=0.7, n_points=24, #boto
+        gamma_min=0.1, gamma_max=0.7, n_points=40,
         seeds_per_gamma=8,
         use_knn=True, knn_k=20,
         use_threshold=False, threshold_tau=0.0,
@@ -169,6 +178,7 @@ def main(project_root: str, output_dir: str):
     )
     log_message = f"Total Features: {len(feature_list)}"
     print(log_message)
+    input("confirm the num of features")
     logging.info(log_message)
     
     for f in feature_list:
@@ -181,11 +191,12 @@ def main(project_root: str, output_dir: str):
     
     modelname = "deepseek-v3"
 
-    # 生成特征描述
-    if is_parallel:
-        generate_feature_description_parallel(feature_list, modelname=modelname, max_workers=8)
-    else:
-        generate_feature_description(feature_list, modelname=modelname)
+    # # 生成特征描述
+    if GENERATE_DESCRIPTION:
+        if is_parallel:
+            generate_feature_description_parallel(feature_list, modelname=modelname, max_workers=8)
+        else:
+            generate_feature_description(feature_list, modelname=modelname)
 
     # 合并特征
     merge_features_by_method_cluster(feature_list, method_clusters, modelname=modelname)
@@ -196,10 +207,15 @@ def main(project_root: str, output_dir: str):
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     # 待总结的项目路径
-    project_root = "/data/zxl/Search2026/Datasets/myDevEval/Internet/boto"
+    #project_root = "/data/zxl/Search2026/Datasets/myDevEval/Internet/boto"
+    #project_root = "/home/riverbag/Datasets/DevEval/mrjob"
+    #project_root = "/home/riverbag/Datasets/DevEval/boto"
+    project_root = "/home/riverbag/Datasets/DevEval/barf"
     # repoSummary结果的保存路径
     # output_dir = os.path.join(here, "out/boto")
-    output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112_codet5"
+    #output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112_codet5"
+    #output_dir = "/home/riverbag/testRepoSummaryOut/boto_with_description/1122_codet5"
+    output_dir = "/home/riverbag/testRepoSummaryOut/barf/0.1_0.7_40"
     main(
         project_root=project_root,
         output_dir=output_dir

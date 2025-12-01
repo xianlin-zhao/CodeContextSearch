@@ -7,8 +7,17 @@ import pandas as pd
 import numpy as np
 from search_models.unixcoder import UniXcoder
 
-METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/methods.csv"
-FILTERED_FILE = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/filtered.jsonl"
+# METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/methods.csv"
+# FILTERED_FILE = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/filtered.jsonl"
+
+METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
+FILTERED_FILE = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl"
+
+# METHODS_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
+# FILTERED_FILE = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl"
+
+# 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
+NEED_METHOD_NAME_NORM = True
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
 	"""
@@ -66,6 +75,14 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 	method_codes = methods_df['method_code'].tolist()
 	method_signatures = methods_df['method_signature'].tolist()
 
+	method_names = [sig.split('(')[0] for sig in method_signatures]
+	
+	if NEED_METHOD_NAME_NORM:
+		# 规范化 method_name：去掉参数，只保留第一个点后的部分，例如 mrjob.hadoop.main -> hadoop.main
+		base_names = methods_df['method_signature'].astype(str).str.split('(').str[0]
+		methods_df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
+		method_names = methods_df['method_name_norm'].unique().tolist()
+
 	# load model and device
 	model, device = load_unixcoder_model(model_path)
 
@@ -93,7 +110,7 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 			deps.extend(data['dependency']['intra_file'])
 			deps.extend(data['dependency']['cross_file'])
 			# filter deps to known method names (method name without args)
-			method_names = [sig.split('(')[0] for sig in method_signatures]
+			
 			deps = [dep for dep in deps if dep in method_names]
 			total_gt += len(deps)
 
