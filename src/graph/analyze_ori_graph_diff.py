@@ -42,14 +42,18 @@ def load_enre_json(json_path):
     # Build adjacency
     adj = defaultdict(list) # src -> [(dest, kind)]
     reverse_adj = defaultdict(list) # dest -> [(src, kind)]
-    
+    seen_edges = set()
+
     for cell in cells:
         src = cell.get('src')
         dest = cell.get('dest')
         kind = cell.get('values', {}).get('kind')
         if src in valid_nodes and dest in valid_nodes:
-            adj[src].append((dest, kind))
-            reverse_adj[dest].append((src, kind))
+            edge_tuple = (src, dest, kind)
+            if edge_tuple not in seen_edges:
+                seen_edges.add(edge_tuple)
+                adj[src].append((dest, kind))
+                reverse_adj[dest].append((src, kind))
             
     return valid_nodes, qname_to_id, id_to_qname, adj, reverse_adj
 
@@ -104,27 +108,6 @@ def main():
         node_id_map = {} # normalized_sig -> graph_node_id (ENRE ID)
         
         for node_id, data in G.nodes(data=True):
-            # label is ENRE ID? User said "label是指它在ENRE_REPORT里面的编号"
-            # Wait, usually label is string name, ID is the node ID.
-            # In build_graph.py: G.add_node(eid, label=clean_sig, ...)
-            # So label was the signature string.
-            # But user prompt says: "label refers to its ID in ENRE_REPORT". 
-            # This might mean the `id` attribute or the `label` attribute.
-            # In GML, `id` is implicit/explicit. 
-            # If user says "label is ID", maybe they mean the visible label on the node IS the ID?
-            # Or maybe they mean the `label` attribute holds the ID?
-            # BUT later they say "especially label and sig attributes".
-            # If label is ID, then what is sig?
-            # In my build_graph, I saved `label` as clean_sig.
-            # Let's look at the user's GML snippet:
-            # `method_signature "mrjob.mrjob.runner..."`
-            # `label "1"` (in my test output) or `label "mrjob..."`?
-            # In the test_gml output: `label "1"`.
-            # In my build_graph: `G.add_node(eid, label=clean_sig)` -> label would be string.
-            # If user says "label is ID", maybe they are using a different graph generation script?
-            # "Analysis... referring to build_graph" -> maybe build_graph *should have* put ID as label?
-            # Whatever, I will trust the `sig` or `method_signature` attribute for the name.
-            
             sig = data.get('sig')
             # Normalize
             norm_sig = normalize_signature(sig, remove_prefix=REMOVE_FIRST_DOT_PREFIX)
@@ -136,15 +119,7 @@ def main():
             
         # Compare GT with Graph
         missing_methods = []
-        for gt in gt_methods:
-            # Normalize GT? GT is usually "mrjob.xxx"
-            # If remove prefix is on, we should remove it from GT too if it matches pattern?
-            # Or maybe GT is already "clean"?
-            # "mrjob.hadoop.HadoopJobRunner._hadoop_log_dirs"
-            # If prefix "mrjob." is removed -> "hadoop..."
-            # Let's try both raw and normalized match
-            # norm_gt = normalize_signature(gt, remove_prefix=REMOVE_FIRST_DOT_PREFIX)
-            
+        for gt in gt_methods:            
             if gt not in graph_sigs:
                 missing_methods.append(gt)
                 

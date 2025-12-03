@@ -53,6 +53,7 @@ print(f"Filtered {len(valid_nodes)} valid nodes from ENRE_JSON.")
 
 print("Processing relations in ENRE_JSON...")
 edges = []
+seen_edges = set()
 for cell in cells:
     src = cell.get('src')
     dest = cell.get('dest')
@@ -61,7 +62,10 @@ for cell in cells:
     
     # 把所有有效边加入edges
     if src in valid_nodes and dest in valid_nodes:
-        edges.append((src, dest, kind))
+        edge_tuple = (src, dest, kind)
+        if edge_tuple not in seen_edges:
+            seen_edges.add(edge_tuple)
+            edges.append((src, dest, kind))
         
 print(f"Loaded {len(edges)} valid edges.")
 
