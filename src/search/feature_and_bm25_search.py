@@ -8,17 +8,23 @@ import numpy as np
 import re
 from rank_bm25 import BM25Okapi
 
-PROJECT_PATH = "Internet/boto"
-#PROJECT_PATH = "System/mrjob"
+# PROJECT_PATH = "Internet/boto"
+PROJECT_PATH = "System/mrjob"
+
+
+FEATURE_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/features.csv" 
+METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/methods.csv" 
+FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/filtered.jsonl" 
+
 
 
 # FEATURE_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/features.csv" 
 # METHODS_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
 # FILTERED_PATH = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl" 
 
-FEATURE_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/features.csv" 
-METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
-FILTERED_PATH = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl" 
+# FEATURE_CSV = "/home/riverbag/testRepoSu/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/filtered.jsonlmmaryOut/boto/boto_testAug/1122_codet5/features.csv" 
+# METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
+# FILTERED_PATH = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl" 
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 

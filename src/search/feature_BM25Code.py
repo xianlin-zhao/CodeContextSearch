@@ -13,9 +13,13 @@ from tqdm import tqdm
 PROJECT_PATH = "System/mrjob"
 
 
-FEATURE_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/features.csv" 
-METHODS_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
-FILTERED_PATH = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl" 
+FEATURE_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/features.csv" 
+METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/methods.csv" 
+FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/filtered.jsonl" 
+
+# FEATURE_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/features.csv" 
+# METHODS_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
+# FILTERED_PATH = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl" 
 
 # FEATURE_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/features.csv" 
 # METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
