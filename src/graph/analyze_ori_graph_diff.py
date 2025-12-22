@@ -11,6 +11,7 @@ FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet
 OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/graph_results" 
 
 REMOVE_FIRST_DOT_PREFIX = True
+PREFIX = "mrjob"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
 
 def load_methods_csv(csv_path):
     df = pd.read_csv(csv_path)
@@ -138,8 +139,8 @@ def main():
             
             found_eid = None
 
-            # 临时：在前面加上mrjob.
-            missing = 'mrjob.' + missing
+            if REMOVE_FIRST_DOT_PREFIX:
+                missing = PREFIX + '.' + missing
             
             # Exact match check
             if missing in qname_to_id:
@@ -168,7 +169,7 @@ def main():
                 print(f"  [Missing] {missing} -> Could not find in ENRE.")
                 continue
                 
-            print(f"  [Missing] {missing} -> ENRE ID {found_eid} ({id_to_qname[found_eid]})")
+            print(f"  [Missing] {missing} -> ENRE ID {found_eid} ({id_to_qname[found_eid]}) ({enre_nodes[found_eid].get('category')})")
             
             # 2. Find relations with EXISTING graph nodes
             # Check relations in ENRE (adj)
@@ -178,7 +179,7 @@ def main():
                     dest = str(dest)
                     if dest in G.nodes:
                         dest_sig = G.nodes[dest].get('sig', G.nodes[dest].get('label'))
-                        print(f"    -> Relation: [Missing] --({kind})--> [Graph Node {dest}] ({dest_sig})")
+                        print(f"    -> Relation: [Missing] --({kind})--> [Graph Node {dest}] {G.nodes[dest].get('category')} ({dest_sig})")
                         
             # Incoming to missing
             if found_eid in reverse_adj:
@@ -186,7 +187,7 @@ def main():
                     src = str(src)
                     if src in G.nodes:
                         src_sig = G.nodes[src].get('sig', G.nodes[src].get('label'))
-                        print(f"    -> Relation: [Graph Node {src}] ({src_sig}) --({kind})--> [Missing]")
+                        print(f"    -> Relation: [Graph Node {src}] {G.nodes[src].get('category')} ({src_sig}) --({kind})--> [Missing]")
 
 if __name__ == "__main__":
     main()

@@ -106,6 +106,7 @@ def build_graph():
         # 获取搜索出来的所有method
         preds = []
         try:
+            # 目前这里只选取top3的feature对应的结果，作为初始子图
             preds = rec["feature"]["top3"]["predictions"]
         except KeyError:
             print(f"Skipping task {example_id}: structure not matching data['feature']['top3']['predictions']")
