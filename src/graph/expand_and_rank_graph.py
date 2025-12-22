@@ -1,7 +1,7 @@
 import os
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 import sys
-sys.path.append("/data/zxl/Search2026/CodeContextSearch/src")
+sys.path.append("..")
 import json
 import pandas as pd
 import networkx as nx
