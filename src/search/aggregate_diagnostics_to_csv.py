@@ -93,7 +93,7 @@ def aggregate(dir_path, out_csv):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", default="/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5")
+    parser.add_argument("--dir", default="/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
     out_csv = args.out or os.path.join(args.dir, "diagnostic_metrics_by_example.csv")
