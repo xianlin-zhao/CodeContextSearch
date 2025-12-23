@@ -9,6 +9,9 @@ import numpy as np
 import re
 from rank_bm25 import BM25Okapi
 from tqdm import tqdm
+import torch
+import torch.nn.functional as F
+from search_models.unixcoder import UniXcoder
 from utils.query_refine import refine_query
 
 # PROJECT_PATH = "Internet/boto"
@@ -18,7 +21,7 @@ PROJECT_PATH ="Database/alembic"
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/features.csv" 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/methods.csv" 
 # FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/filtered.jsonl" 
-# refined_queries_cache_path= '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/refined_queries.json'
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/refined_queries.json'
 
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/features.csv" 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/methods.csv" 
@@ -41,6 +44,56 @@ USE_REFINED_QUERY = True
 CLUSTER_KS = [1, 3, 5]
 SIG_KS = [5, 10, 15]
 
+# Weighting for combination
+# A simple starting point: 0.5 * Normalized_BM25 + 0.5 * Normalized_UniXcoder
+# Or maybe just sum if they are somewhat comparable, but usually they are not.
+# Normalization strategy: Min-Max normalization per query.
+BM25_WEIGHT = 0.5
+UNIXCODER_WEIGHT = 0.5
+
+def load_unixcoder_model(model_path_or_name=None, device=None):
+    """
+    Attempt to load UniXcoder model and move it to a device.
+    Returns (model, device).
+    """
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    try:
+        model = UniXcoder(model_path_or_name if model_path_or_name else "microsoft/unixcoder-base")
+        model.to(device)
+        model.eval()
+        return model, device
+    except Exception:
+        raise ImportError("Unable to import UniXcoder. Ensure UniXcoder is installed / in PYTHONPATH and adjust load_unixcoder_model().")
+
+def encode_corpus_with_unixcoder(model, device, texts, batch_size=32, max_length=512):
+    """
+    Encode a list of texts (function code strings) into normalized embeddings using UniXcoder.
+    """
+    all_embs = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        for func in batch:
+            tokens_ids = model.tokenize([func], max_length=max_length, mode="<encoder-only>")
+            source_ids = torch.tensor(tokens_ids).to(device)  # shape (1, L)
+            with torch.no_grad():
+                _, func_embedding = model(source_ids)
+                normed = F.normalize(func_embedding, p=2, dim=1)  # shape (1, D)
+                all_embs.append(normed.cpu())
+    if len(all_embs) == 0:
+        return torch.empty((0,0))
+    code_embs = torch.cat(all_embs, dim=0)
+    return code_embs  # on CPU
+
+def encode_nl_with_unixcoder(model, device, text, max_length=512):
+    tokens_ids = model.tokenize([text], max_length=max_length, mode="<encoder-only>")
+    source_ids = torch.tensor(tokens_ids).to(device)
+    with torch.no_grad():
+        _, nl_embedding = model(source_ids)
+        nl_embedding = F.normalize(nl_embedding, p=2, dim=1)  # shape (1, dim)
+    return nl_embedding.cpu()
+
 def analyze_project(project_path):
     # Step 1: Filter by project_path
     print("Filtering data...")
@@ -62,16 +115,13 @@ def analyze_project(project_path):
     )
     clusters = df.groupby('id')['desc'].first().reset_index()
     
-    # 提取clusters中所有的method_name
     method_names = df['method_name'].str.split('(').str[0].unique().tolist()
 
     if NEED_METHOD_NAME_NORM:
-        # 规范化 method_name：去掉参数，只保留第一个点后的部分，例如 mrjob.hadoop.main -> hadoop.main
         base_names = df['method_name'].astype(str).str.split('(').str[0]
         df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
         method_names = df['method_name_norm'].unique().tolist()
     print(f"Loaded {len(method_names)} unique method names from features.")
-    print(method_names[:10])
 
     print("Encoding clusters...")
     # # model = SentenceTransformer('all-mpnet-base-v2')
@@ -87,58 +137,36 @@ def analyze_project(project_path):
         model = SentenceTransformer('all-MiniLM-L6-v2')
     cluster_embeddings = model.encode(clusters['desc'].tolist())
 
-    # Step 3: Load Methods for BM25
-    print("Loading methods for BM25...")
+    # Step 3: Load Methods for UniXcoder and BM25
+    print("Loading methods for UniXcoder and BM25...")
     methods_df = pd.read_csv(METHODS_CSV, dtype=str).fillna('')
     if 'method_signature' not in methods_df.columns or 'method_code' not in methods_df.columns:
         raise ValueError("methods.csv must contain 'method_signature' and 'method_code' columns")
 
-    def tokenize_signature(sig: str):
-        part = sig.split('.')[-1]
-        part = part.replace('_', ' ')
-        part = re.sub(r'[\(\),.:]', ' ', part)
-        toks = re.findall(r'\w+', part.lower())
-        return toks
-
-    def tokenize_code(code: str):
-        toks = re.findall(r'\w+', code.lower())
-        return toks
+    methods_corpus_strings = methods_df['method_signature'].tolist()
+    method_codes = methods_df['method_code'].tolist()
 
     # Build BM25 on Code
     print("Building BM25 index on code...")
-    code_docs = [tokenize_code(c) for c in methods_df['method_code'].tolist()]
-    methods_corpus_strings = methods_df['method_signature'].tolist()
+    def tokenize_code(code: str):
+        toks = re.findall(r'\w+', code.lower())
+        return toks
+    code_docs = [tokenize_code(c) for c in method_codes]
     bm25_code = BM25Okapi(code_docs)
 
+    # Load UniXcoder model
+    print("Loading UniXcoder model...")
+    unix_model, device = load_unixcoder_model()
+
+    # Encode all method codes with UniXcoder
+    print("Encoding all method_code with UniXcoder (this may take a while)...")
+    code_embs_all = encode_corpus_with_unixcoder(unix_model, device, method_codes, batch_size=32)
+    
     # Build Mapping: Feature Method Name -> Indices in methods_df
-    # This is needed to map the "Recalled" methods from Feature Search to the BM25 corpus
     print("Building mapping from Feature names to Method indices...")
     feature_name_to_indices = {}
     
-    # Pre-compute valid indices for each feature method name
-    # Note: This might be slow if done naively. We assume method_name is a substring of method_signature.
-    
-    # Optimization: iterate over methods_df once
-    # For each method in methods_df, check which feature names it matches.
-    # To avoid O(N*M), we can try to match by exact string if possible, or use the containment assumption.
-    # Given the previous code used `any(dep in m for m in methods_k)`, where dep is from feature names.
-    # We need to support the same logic.
-    
-    # Let's try to do it:
-    # 1. Get all unique feature method names (un-normalized for matching with raw data if needed, or normalized?)
-    # The 'deps' in ground truth are filtered by `method_names` (which are normalized if NEED_METHOD_NAME_NORM is True).
-    # But `methods_from_top_k_clusters` returns `df['method_name']` which is NOT normalized in the dataframe itself (unless we updated it).
-    # In original code: `df['method_name_norm']` was created but `methods_from_top_k_clusters` uses `df["method_name"]`.
-    # So the recall returns un-normalized names.
-    
     raw_feature_names = df['method_name'].unique().tolist()
-    
-    # We will map RAW feature names to method indices.
-    # Because `methods_from_top_k_clusters` returns raw names.
-    
-    # To speed up: 
-    # many raw_feature_names might be substrings of methods_corpus_strings.
-    # Let's just iterate. For 10k methods and 2k features, 20M checks is fine in Python (~seconds).
     
     for idx, sig in enumerate(methods_corpus_strings):
         for fname in raw_feature_names:
@@ -167,19 +195,26 @@ def analyze_project(project_path):
             methods.extend(df[df["id"] == cid]["method_name"].tolist())
         return list(set(methods)) # Dedup
        
-
     def safe_div(a, b):
         return (a / b) if b != 0 else 0
 
+    def min_max_normalize(scores):
+        if not scores:
+            return []
+        min_s = min(scores)
+        max_s = max(scores)
+        if max_s == min_s:
+            return [1.0] * len(scores) if max_s > 0 else [0.0] * len(scores)
+        return [(s - min_s) / (max_s - min_s) for s in scores]
+
     # Evaluation
-    print("Starting Hybrid Search Evaluation...")
+    print("Starting Hybrid Search Evaluation (Feature + Combined BM25Code & UniXcoder)...")
     with open(FILTERED_PATH, 'r') as f:
         lines = f.readlines()
 
     hybrid_records = []
     
     # Metrics containers
-    # metrics structure: metrics[cluster_k][sig_k] = {"match": 0, "pred": 0}
     metrics = {}
     for ck in CLUSTER_KS:
         metrics[ck] = {}
@@ -197,13 +232,13 @@ def analyze_project(project_path):
         deps.extend(data['dependency']['intra_file'])
         deps.extend(data['dependency']['cross_file'])
         
-        # Filter deps by the normalized method names (as in original code)
+        # Filter deps by the normalized method names
         deps = [dep for dep in deps if dep in method_names]
         top_gt += len(deps)
 
         # Feature Search Embedding
         original_query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
-
+        
         if USE_REFINED_QUERY:
             if original_query in refined_queries_cache:
                 query = refined_queries_cache[original_query]
@@ -211,18 +246,25 @@ def analyze_project(project_path):
                 modelname = "deepseek-v3"
                 query = refine_query(original_query, modelname)
                 refined_queries_cache[original_query] = query
-                # Save immediately
                 with open(refined_queries_cache_path, 'w') as f:
                     json.dump(refined_queries_cache, f, indent=2)
         else:
             query = original_query
 
+        # Encode query for Feature Search
         query_embedding = model.encode([query])
         similarities = cosine_similarity(query_embedding, cluster_embeddings)[0]
         
+        # Encode query for UniXcoder
+        nl_emb_unix = encode_nl_with_unixcoder(unix_model, device, query) # shape (1, D)
+        nl_emb_unix = nl_emb_unix.to(device)
+
+        # Tokenize query for BM25
         q_tokens = re.findall(r'\w+', query.lower())
+        # We only need BM25 scores for candidates, but get_scores gives all.
+        # Efficient enough since we do lookups later.
         all_bm25_scores = bm25_code.get_scores(q_tokens)
-        
+
         # Prepare record for this example
         record = {
             "example_id": example_counter,
@@ -236,7 +278,7 @@ def analyze_project(project_path):
             # 1. Feature Search Recall (Top ck clusters)
             recalled_raw_names = methods_from_top_k_clusters(similarities, ck)
             
-            # Map to BM25 indices
+            # Map to indices
             candidate_indices = set()
             for rname in recalled_raw_names:
                 if rname in feature_name_to_indices:
@@ -244,18 +286,33 @@ def analyze_project(project_path):
             
             candidate_indices = list(candidate_indices)
             
-            # 2. BM25 Re-ranking on Code
+            # 2. Re-ranking (Combined BM25 + UniXcoder)
             final_methods = []
             if candidate_indices:
-                scored_candidates = []
-                for idx in candidate_indices:
-                    scored_candidates.append((all_bm25_scores[idx], methods_corpus_strings[idx]))
+                # --- UniXcoder Scores ---
+                cand_embs = code_embs_all[candidate_indices].to(device)
+                with torch.no_grad():
+                    unix_sims = torch.mm(nl_emb_unix, cand_embs.t()).squeeze(0) # shape (M,)
+                unix_scores = unix_sims.cpu().numpy().tolist()
                 
-                # Sort by score desc
-                scored_candidates.sort(key=lambda x: x[0], reverse=True)
+                # --- BM25 Scores ---
+                bm25_subset_scores = [all_bm25_scores[idx] for idx in candidate_indices]
+                
+                # --- Normalization ---
+                norm_unix = min_max_normalize(unix_scores)
+                norm_bm25 = min_max_normalize(bm25_subset_scores)
+                
+                # --- Combination ---
+                combined_scores = []
+                for i in range(len(candidate_indices)):
+                    score = (BM25_WEIGHT * norm_bm25[i]) + (UNIXCODER_WEIGHT * norm_unix[i])
+                    combined_scores.append((score, candidate_indices[i]))
+                
+                # Sort by combined score desc
+                combined_scores.sort(key=lambda x: x[0], reverse=True)
                 
                 # Extract method signatures
-                final_methods = [x[1] for x in scored_candidates]
+                final_methods = [methods_corpus_strings[x[1]] for x in combined_scores]
             
             # 3. Calculate metrics for different Signature Top-Ks (SIG_KS)
             record["hybrid"][f"recall_top{ck}_clusters"] = {}
@@ -284,12 +341,13 @@ def analyze_project(project_path):
 
     # Output results
     out_dir = os.path.dirname(FILTERED_PATH)
-    hybrid_path = os.path.join(out_dir, "diagnostic_hybrid.jsonl")
+    hybrid_path = os.path.join(out_dir, "diagnostic_hybrid_combined.jsonl")
     with open(hybrid_path, "w", encoding="utf-8") as fo:
         for rec in hybrid_records:
             fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-    print("\nHybrid Search Results (Feature Recall + BM25 Code Re-rank):")
+    print("\nHybrid Search Results (Feature Recall + Combined BM25Code & UniXcoder Re-rank):")
+    print(f"Weights: BM25={BM25_WEIGHT}, UniXcoder={UNIXCODER_WEIGHT}")
     print("Format: Recall Top-K Clusters -> Rank Top-K Results")
     print("="*60)
     
@@ -301,7 +359,9 @@ def analyze_project(project_path):
             
             precision = (safe_div(m, p)) * 100
             recall = (safe_div(m, top_gt)) * 100
-            f1 = (2 * safe_div(m, p) * safe_div(m, top_gt) / (safe_div(m, p) + safe_div(m, top_gt))) * 100 if (safe_div(m, p) + safe_div(m, top_gt)) > 0 else 0
+            
+            denom = safe_div(m, p) + safe_div(m, top_gt)
+            f1 = (2 * safe_div(m, p) * safe_div(m, top_gt) / denom) * 100 if denom > 0 else 0
             
             print(f"  Rank Top {sk}:")
             print(f"    Match: {m}, Pred: {p}")

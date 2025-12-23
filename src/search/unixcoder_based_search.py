@@ -10,14 +10,24 @@ from search_models.unixcoder import UniXcoder
 # METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/methods.csv"
 # FILTERED_FILE = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/filtered.jsonl"
 
-METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
-FILTERED_FILE = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl"
+# METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
+# FILTERED_FILE = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl"
 
-# METHODS_CSV = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
-# FILTERED_FILE = "/home/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl"
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
+# FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl"
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1122_codet5/refined_queries.json' 
+
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/features.csv" 
+FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/filtered.jsonl"
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/refined_queries.json' 
+
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40/methods.csv" 
+# FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40/filtered.jsonl"
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40/refined_queries.json' 
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = True
+USE_REFINED_QUERY = True
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
 	"""
@@ -100,6 +110,15 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 	pred_counts = {k: 0 for k in topk_list}
 	total_gt = 0
 
+	# Load or initialize the query cache
+	if os.path.exists(refined_queries_cache_path):
+		with open(refined_queries_cache_path, 'r') as f:
+			refined_queries_cache = json.load(f)
+	else:
+		refined_queries_cache = {}
+		with open(refined_queries_cache_path, 'w') as f:
+			json.dump(refined_queries_cache, f, indent=2)
+
 	# read filtered queries
 	with open(filtered_file, 'r') as f:
 		for line in f:
@@ -115,7 +134,26 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 			total_gt += len(deps)
 
 			# build natural language query
-			query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
+			#query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
+			original_query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
+			#print("original query: ", original_query)
+
+			if USE_REFINED_QUERY:
+				if original_query in refined_queries_cache:
+					query = refined_queries_cache[original_query]
+					print("found in cache")
+				else:
+					modelname = "deepseek-v3"
+					query = refine_query(original_query, modelname)
+					refined_queries_cache[original_query] = query
+					# 关键：添加后立即保存！
+					with open(refined_queries_cache_path, 'w') as f:
+						json.dump(refined_queries_cache, f, indent=2)
+				print("refined query: ", query)
+			else:
+				query = original_query
+				print("Using original query: ", query)
+
 			# encode query NL using UniXcoder
 			nl_emb = encode_nl_with_unixcoder(model, device, query)  # CPU tensor
 			nl_emb = nl_emb.to(device)

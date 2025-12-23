@@ -17,18 +17,22 @@ PROJECT_PATH ="Database/alembic"
 
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/features.csv" 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/methods.csv" 
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/filtered.jsonl" 
-# refined_queries_cache_path= '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/refined_queries.json'
+# METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/methods_with_desc.csv"
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/filtered.jsonl"
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/refined_queries.json' 
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/methods.csv" 
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/filtered.jsonl" 
+# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/features.csv" 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/methods.csv" 
+# METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/methods_with_desc.csv"
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/filtered.jsonl" 
 # refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/refined_queries.json'
 
 FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/features.csv" 
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/methods.csv" 
+METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/methods_with_desc.csv"
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/filtered.jsonl" 
 refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/refined_queries.json' 
+
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
@@ -87,60 +91,32 @@ def analyze_project(project_path):
         model = SentenceTransformer('all-MiniLM-L6-v2')
     cluster_embeddings = model.encode(clusters['desc'].tolist())
 
-    # Step 3: Load Methods for BM25
-    print("Loading methods for BM25...")
-    methods_df = pd.read_csv(METHODS_CSV, dtype=str).fillna('')
-    if 'method_signature' not in methods_df.columns or 'method_code' not in methods_df.columns:
-        raise ValueError("methods.csv must contain 'method_signature' and 'method_code' columns")
+    # Step 3: Load Methods for BM25 (Description)
+    print("Loading methods with description for BM25...")
+    methods_desc_df = pd.read_csv(METHODS_DESC_CSV, dtype=str).fillna('')
+    if 'func_desc' not in methods_desc_df.columns:
+        raise ValueError("methods_with_desc.csv must contain 'func_desc' column")
 
-    def tokenize_signature(sig: str):
-        part = sig.split('.')[-1]
-        part = part.replace('_', ' ')
-        part = re.sub(r'[\(\),.:]', ' ', part)
-        toks = re.findall(r'\w+', part.lower())
+    def tokenize_text(text: str):
+        toks = re.findall(r'\w+', text.lower())
         return toks
 
-    def tokenize_code(code: str):
-        toks = re.findall(r'\w+', code.lower())
-        return toks
+    # Build BM25 on Description
+    print("Building BM25 index on description...")
+    desc_docs = [tokenize_text(d) for d in methods_desc_df['func_desc'].tolist()]
+    methods_desc_corpus_strings = methods_desc_df['func_fullName'].tolist()
+    bm25_desc = BM25Okapi(desc_docs)
 
-    # Build BM25 on Code
-    print("Building BM25 index on code...")
-    code_docs = [tokenize_code(c) for c in methods_df['method_code'].tolist()]
-    methods_corpus_strings = methods_df['method_signature'].tolist()
-    bm25_code = BM25Okapi(code_docs)
-
-    # Build Mapping: Feature Method Name -> Indices in methods_df
-    # This is needed to map the "Recalled" methods from Feature Search to the BM25 corpus
+    # Build Mapping: Feature Method Name -> Indices in methods_desc_df
     print("Building mapping from Feature names to Method indices...")
     feature_name_to_indices = {}
-    
-    # Pre-compute valid indices for each feature method name
-    # Note: This might be slow if done naively. We assume method_name is a substring of method_signature.
-    
-    # Optimization: iterate over methods_df once
-    # For each method in methods_df, check which feature names it matches.
-    # To avoid O(N*M), we can try to match by exact string if possible, or use the containment assumption.
-    # Given the previous code used `any(dep in m for m in methods_k)`, where dep is from feature names.
-    # We need to support the same logic.
-    
-    # Let's try to do it:
-    # 1. Get all unique feature method names (un-normalized for matching with raw data if needed, or normalized?)
-    # The 'deps' in ground truth are filtered by `method_names` (which are normalized if NEED_METHOD_NAME_NORM is True).
-    # But `methods_from_top_k_clusters` returns `df['method_name']` which is NOT normalized in the dataframe itself (unless we updated it).
-    # In original code: `df['method_name_norm']` was created but `methods_from_top_k_clusters` uses `df["method_name"]`.
-    # So the recall returns un-normalized names.
     
     raw_feature_names = df['method_name'].unique().tolist()
     
     # We will map RAW feature names to method indices.
     # Because `methods_from_top_k_clusters` returns raw names.
     
-    # To speed up: 
-    # many raw_feature_names might be substrings of methods_corpus_strings.
-    # Let's just iterate. For 10k methods and 2k features, 20M checks is fine in Python (~seconds).
-    
-    for idx, sig in enumerate(methods_corpus_strings):
+    for idx, sig in enumerate(methods_desc_corpus_strings):
         for fname in raw_feature_names:
             if fname in sig:
                 if fname not in feature_name_to_indices:
@@ -172,7 +148,7 @@ def analyze_project(project_path):
         return (a / b) if b != 0 else 0
 
     # Evaluation
-    print("Starting Hybrid Search Evaluation...")
+    print("Starting Hybrid Search Evaluation (Feature + BM25 Desc)...")
     with open(FILTERED_PATH, 'r') as f:
         lines = f.readlines()
 
@@ -221,7 +197,7 @@ def analyze_project(project_path):
         similarities = cosine_similarity(query_embedding, cluster_embeddings)[0]
         
         q_tokens = re.findall(r'\w+', query.lower())
-        all_bm25_scores = bm25_code.get_scores(q_tokens)
+        all_bm25_scores = bm25_desc.get_scores(q_tokens)
         
         # Prepare record for this example
         record = {
@@ -244,12 +220,12 @@ def analyze_project(project_path):
             
             candidate_indices = list(candidate_indices)
             
-            # 2. BM25 Re-ranking on Code
+            # 2. BM25 Re-ranking on Description
             final_methods = []
             if candidate_indices:
                 scored_candidates = []
                 for idx in candidate_indices:
-                    scored_candidates.append((all_bm25_scores[idx], methods_corpus_strings[idx]))
+                    scored_candidates.append((all_bm25_scores[idx], methods_desc_corpus_strings[idx]))
                 
                 # Sort by score desc
                 scored_candidates.sort(key=lambda x: x[0], reverse=True)
@@ -284,12 +260,12 @@ def analyze_project(project_path):
 
     # Output results
     out_dir = os.path.dirname(FILTERED_PATH)
-    hybrid_path = os.path.join(out_dir, "diagnostic_hybrid.jsonl")
+    hybrid_path = os.path.join(out_dir, "diagnostic_hybrid_desc.jsonl")
     with open(hybrid_path, "w", encoding="utf-8") as fo:
         for rec in hybrid_records:
             fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-    print("\nHybrid Search Results (Feature Recall + BM25 Code Re-rank):")
+    print("\nHybrid Search Results (Feature Recall + BM25 Desc Re-rank):")
     print("Format: Recall Top-K Clusters -> Rank Top-K Results")
     print("="*60)
     

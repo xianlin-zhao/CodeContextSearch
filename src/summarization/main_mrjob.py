@@ -23,7 +23,7 @@ STRATEGY = "code_t5"
 # 生成feature时是否并发调用大模型
 IS_PARALLEL = True
 # 是否生成特征描述
-GENERATE_DESCRIPTION = False
+GENERATE_DESCRIPTION = True
 
 
 def main(project_root: str, output_dir: str):
@@ -163,13 +163,16 @@ def main(project_root: str, output_dir: str):
     feature_list, summary = cluster_all_functions_to_features(
         method_clusters,
         weight_parameter=0.25,
-        #gamma_min=0.05, gamma_max=0.5, n_points=24, #mrjob
+        # Gamma (resolution) controls cluster size:
+        # - Lower Gamma (e.g. 0.01 - 0.2) -> Coarser, LARGER clusters (Fewer clusters)
+        # - Higher Gamma (e.g. 0.5 - 1.0) -> Finer, SMALLER clusters (More clusters)
+        gamma_min=0.005, gamma_max=0.08, n_points=24, #mrjob
         #gamma_min=0.1, gamma_max=0.7, n_points=24, #boto
-        gamma_min=0.1, gamma_max=0.7, n_points=40,
+        #gamma_min=0.1, gamma_max=0.85, n_points=40,
         seeds_per_gamma=8,
         use_knn=True, knn_k=20,
         use_threshold=False, threshold_tau=0.0,
-        min_clusters=2, max_clusters_ratio=0.4,
+        min_clusters=2, max_clusters_ratio=0.15,
         use_silhouette=False, silhouette_sample_size=None,
         objective="CPM",
         consensus_tau=0.6, consensus_gamma=0.1,
@@ -208,14 +211,14 @@ if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     # 待总结的项目路径
     #project_root = "/data/zxl/Search2026/Datasets/myDevEval/Internet/boto"
-    #project_root = "/home/riverbag/Datasets/DevEval/mrjob"
+    project_root = "/data/data_public/riverbag/Datasets/DevEval/mrjob"
     #project_root = "/home/riverbag/Datasets/DevEval/boto"
-    project_root = "/home/riverbag/Datasets/DevEval/barf"
+    # project_root = "/data/data_public/riverbag/Datasets/DevEval/alembic"
     # repoSummary结果的保存路径
     # output_dir = os.path.join(here, "out/boto")
-    #output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112_codet5"
-    #output_dir = "/home/riverbag/testRepoSummaryOut/boto_with_description/1122_codet5"
-    output_dir = "/home/riverbag/testRepoSummaryOut/barf/0.1_0.7_40"
+    # output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112_codet5"
+    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/newTryTry"
+    # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40"
     main(
         project_root=project_root,
         output_dir=output_dir
