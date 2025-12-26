@@ -5,10 +5,10 @@ import networkx as nx
 from collections import defaultdict
 
 
-METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/methods.csv"
-ENRE_JSON = "/data/zxl/Search2026/CodeContextSearch/src/summarization/mrjob-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/graph_results" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/mrjob-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/1224/graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = True
 PREFIX = "mrjob"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
@@ -79,6 +79,16 @@ def main():
                 tasks.append(json.loads(line))
                 
     print(f"Loaded {len(tasks)} tasks.")
+
+    
+    # 统计缺失的代码元素，由什么关系可以扩展出来，key是关系类型，value是可以通过这种关系扩展出来的数量
+    missing_relation_to_cnt = {}
+    ground_truth_count = 0
+    match_count = 0
+    # ground truth中没找到，且与初始搜索结果没有关系的代码元素数量
+    no_relation_gt_count = 0
+
+
     
     # Iterate tasks
     for i, task in enumerate(tasks):
@@ -90,6 +100,8 @@ def main():
         gt_methods.extend(dependency.get('intra_class', []))
         gt_methods.extend(dependency.get('intra_file', []))
         gt_methods.extend(dependency.get('cross_file', []))
+
+        ground_truth_count += len(gt_methods)
         
         # Load Graph
         gml_filename = f"task_{task_id}_ori.gml"
@@ -125,6 +137,7 @@ def main():
                 missing_methods.append(gt)
                 
         print(f"Task {task_id}: {len(missing_methods)} missing methods out of {len(gt_methods)} GT.")
+        match_count += len(gt_methods) - len(missing_methods)
         
         if not missing_methods:
             continue
@@ -166,11 +179,16 @@ def main():
                 
             
             if found_eid is None:
+                # 没有找到，是因为读入enre report时过滤掉了"Un"开头的类型，比如Unresolved attributes
                 print(f"  [Missing] {missing} -> Could not find in ENRE.")
+                no_relation_gt_count += 1
                 continue
                 
             print(f"  [Missing] {missing} -> ENRE ID {found_eid} ({id_to_qname[found_eid]}) ({enre_nodes[found_eid].get('category')})")
             
+
+            # 缺失的这个代码元素是否能通过某个节点扩展出来
+            found_missing_edge = False
             # 2. Find relations with EXISTING graph nodes
             # Check relations in ENRE (adj)
             # Outgoing from missing
@@ -180,6 +198,9 @@ def main():
                     if dest in G.nodes:
                         dest_sig = G.nodes[dest].get('sig', G.nodes[dest].get('label'))
                         print(f"    -> Relation: [Missing] --({kind})--> [Graph Node {dest}] {G.nodes[dest].get('category')} ({dest_sig})")
+                        missing_relation_str = f"[Missing] {enre_nodes[found_eid].get('category')} --({kind})--> {G.nodes[dest].get('category')}"
+                        missing_relation_to_cnt[missing_relation_str] = missing_relation_to_cnt.get(missing_relation_str, 0) + 1
+                        found_missing_edge = True
                         
             # Incoming to missing
             if found_eid in reverse_adj:
@@ -188,6 +209,21 @@ def main():
                     if src in G.nodes:
                         src_sig = G.nodes[src].get('sig', G.nodes[src].get('label'))
                         print(f"    -> Relation: [Graph Node {src}] {G.nodes[src].get('category')} ({src_sig}) --({kind})--> [Missing]")
+                        missing_relation_str = f"{G.nodes[src].get('category')} --({kind})--> [Missing] {enre_nodes[found_eid].get('category')}"
+                        missing_relation_to_cnt[missing_relation_str] = missing_relation_to_cnt.get(missing_relation_str, 0) + 1
+                        found_missing_edge = True
+
+            # 没有找到能与初始子图相连的边
+            if not found_missing_edge:
+                no_relation_gt_count += 1
+                
+
+    print(f"Total ground truth methods: {ground_truth_count}")
+    print(f"Matched methods: {match_count}")
+    print(f"Methods without relation in GT (completely not found): {no_relation_gt_count}")
+    # missing_relation_to_cnt是一个map，打印里面每一个k-v
+    for k, v in missing_relation_to_cnt.items():
+        print(f"  {k}: {v}")
 
 if __name__ == "__main__":
     main()

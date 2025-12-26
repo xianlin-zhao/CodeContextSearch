@@ -6,11 +6,11 @@ import os
 from collections import defaultdict
 
 
-METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/methods.csv"
-ENRE_JSON = "/data/zxl/Search2026/CodeContextSearch/src/summarization/mrjob-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/diagnostic_feature.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/alembic-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/filtered.jsonl" 
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/diagnostic_hybrid_feature_BM25Code.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Database_alembic/1224/graph_results"
 
 
 # 读入之前处理的所有method信息
@@ -107,7 +107,8 @@ def build_graph():
         preds = []
         try:
             # 目前这里只选取top3的feature对应的结果，作为初始子图
-            preds = rec["feature"]["top3"]["predictions"]
+            # preds = rec["feature"]["top3"]["predictions"]
+            preds = rec["hybrid"]["recall_top3_clusters"]["rank_top10"]["predictions"]
         except KeyError:
             print(f"Skipping task {example_id}: structure not matching data['feature']['top3']['predictions']")
             continue
