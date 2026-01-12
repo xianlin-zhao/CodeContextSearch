@@ -6,11 +6,14 @@ import os
 from collections import defaultdict
 
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/alembic-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/diagnostic_hybrid_feature_BM25Code.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Database_alembic/1224/graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/boto-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/filtered.jsonl" 
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/diagnostic_hybrid_feature_BM25Code.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0108/graph_results"
+
+REMOVE_FIRST_DOT_PREFIX = True
+PREFIX = "boto"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
 
 
 # 读入之前处理的所有method信息
@@ -102,6 +105,9 @@ def build_graph():
         
     for i, rec in enumerate(diag_records):
         example_id = rec.get('example_id', i)
+        task_namespace = tasks_info[i].get("namespace")
+        if REMOVE_FIRST_DOT_PREFIX:
+            task_namespace = PREFIX + "." + task_namespace
         
         # 获取搜索出来的所有method
         preds = []
@@ -109,6 +115,11 @@ def build_graph():
             # 目前这里只选取top3的feature对应的结果，作为初始子图
             # preds = rec["feature"]["top3"]["predictions"]
             preds = rec["hybrid"]["recall_top3_clusters"]["rank_top10"]["predictions"]
+            # 过滤掉preds中method == task_namespace的项，也就是待补全的ground truth的代码
+            filtered_preds = [p for p in preds if (p['method'] if '(' not in p['method'] else p['method'].split('(')[0]) != task_namespace]
+            if len(filtered_preds) != len(preds):
+                print(f"Attention! {len(preds) - len(filtered_preds)} items filtered out for task {example_id} (method == {task_namespace})")
+            preds = filtered_preds
         except KeyError:
             print(f"Skipping task {example_id}: structure not matching data['feature']['top3']['predictions']")
             continue

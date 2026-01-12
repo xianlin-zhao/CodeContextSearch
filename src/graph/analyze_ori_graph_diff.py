@@ -8,7 +8,7 @@ from collections import defaultdict
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/methods.csv"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/mrjob-report-enre.json"
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/1224/graph_results"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/0108/graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = True
 PREFIX = "mrjob"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
