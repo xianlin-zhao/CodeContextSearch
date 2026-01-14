@@ -29,6 +29,7 @@ MODEL_BACKEND_CHOICE = "openai"
 RAG_DATA_SOURCE = "bm25"
 
 DEBUG = True  # 是否打印调试信息
+GENERATION_FLAG = False  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
 
 PROMPT_TEMPLATE = (
     "Please complete the function in the given Python code"
@@ -131,6 +132,34 @@ def assemble_context_code_into_prompt(context_code_list: list[Dict[str, Any]]) -
     return context_code_in_prompt
 
 
+def _normalize_symbol(s: str) -> str:
+    if "(" in s:
+        return s.split("(", 1)[0]
+    return s
+
+
+# 计算搜索结果对于dependency的召回率
+def compute_task_recall(
+    dependency: Optional[list[str]],
+    searched_context_code_list: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    dep = dependency or []
+    dep_set = {x for x in dep}
+    retrieved_set = {
+        _normalize_symbol(str(x.get("method_signature", "")))
+        for x in searched_context_code_list
+        if isinstance(x, dict)
+    }
+    dep_total = len(dep_set)
+    hit = len(dep_set & retrieved_set) if dep_total > 0 else 0
+    recall = (hit / dep_total) if dep_total > 0 else None
+    return {
+        "dependency_total": dep_total,
+        "dependency_hit": hit,
+        "recall": recall,
+    }
+
+
 # 将需求文本格式化为多行注释，用于拼接在函数签名下面
 def format_requirement_as_comment(requirement_text: str) -> str:
     if not requirement_text:
@@ -184,6 +213,9 @@ def generate_completions(
     diag_records = load_diagnostic_result(DIAGNOSTIC_JSONL)
 
     processed = 0
+    recall_sum = 0.0
+    recall_count = 0
+    recall_none_count = 0
     for record in iter_jsonl(filtered_path):
         task = parse_task(record)
 
@@ -197,6 +229,14 @@ def generate_completions(
         searched_context_code_list = get_searched_context_code(task, diag_record)
         context_code_in_prompt = assemble_context_code_into_prompt(searched_context_code_list)
 
+        # 计算该任务的context recall
+        recall_info = compute_task_recall(task.dependency, searched_context_code_list)
+        if recall_info["recall"] is None:
+            recall_none_count += 1
+        else:
+            recall_sum += float(recall_info["recall"])
+            recall_count += 1
+
         requirement_comment = format_requirement_as_comment(task.requirement_text)
         prompt = build_prompt(signature=signature, requirement_comment=requirement_comment,
                                 context_code_in_prompt=context_code_in_prompt)
@@ -208,31 +248,49 @@ def generate_completions(
             print("[debug] signature:\n" + preview_text(signature), file=sys.stderr)
             print("[debug] requirement_comment:\n" + preview_text(requirement_comment), file=sys.stderr)
             print("[debug] prompt:\n" + preview_text(prompt), file=sys.stderr)
-
-        raw_completion = client.generate(prompt)
-        extracted_completion = extract_code_from_markdown(raw_completion)
-        completion = keep_only_completion(
-            extracted_completion,
-            signature=signature,
-            requirement_comment=requirement_comment,
-            requirement_text=task.requirement_text,
-        )
         
-        if DEBUG:
-            print("[debug] raw_completion:\n" + preview_text(raw_completion), file=sys.stderr)
-            print("[debug] final_completion:\n" + preview_text(completion), file=sys.stderr)
+        if GENERATION_FLAG:
+            raw_completion = client.generate(prompt)
+            extracted_completion = extract_code_from_markdown(raw_completion)
+            completion = keep_only_completion(
+                extracted_completion,
+                signature=signature,
+                requirement_comment=requirement_comment,
+                requirement_text=task.requirement_text,
+            )
+        
+            if DEBUG:
+                print("[debug] raw_completion:\n" + preview_text(raw_completion), file=sys.stderr)
+                print("[debug] final_completion:\n" + preview_text(completion), file=sys.stderr)
 
-        write_jsonl_line(output_jsonl, {
-            "namespace": task.namespace,
-            "completion": completion,
-            "idx": processed
-        })
+        if GENERATION_FLAG:
+            write_jsonl_line(output_jsonl, {
+                "namespace": task.namespace,
+                "completion": completion,
+                "idx": processed,
+                "dependency": task.dependency,
+                "recall": recall_info,
+            })
 
         processed += 1
         if sleep_s > 0:
             time.sleep(sleep_s)
         if max_tasks is not None and processed >= max_tasks:
             break
+    
+    mean_recall = (recall_sum / recall_count) if recall_count > 0 else None
+    print(
+        json.dumps(
+            {
+                "recall_mean": mean_recall,
+                "tasks_with_dependency": recall_count,
+                "tasks_without_dependency": recall_none_count,
+                "tasks_total": processed,
+            },
+            ensure_ascii=False,
+        ),
+        file=sys.stderr,
+    )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
