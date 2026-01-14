@@ -8,8 +8,7 @@ from collections import defaultdict
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/methods.csv"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/mrjob-report-enre.json"
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/bm25code_graph_results" 
-ANALYSIS_OUTPUT_FILE = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/bm25code_analysis_diff_report.txt"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/0108/graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = True
 PREFIX = "mrjob"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
@@ -69,136 +68,162 @@ def normalize_signature(sig, remove_prefix=False):
     return clean
 
 def main():
-    # Ensure output directory exists
-    output_dir = os.path.dirname(ANALYSIS_OUTPUT_FILE)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        
-    with open(ANALYSIS_OUTPUT_FILE, 'w', encoding='utf-8') as f_out:
-        def log(msg):
-            print(msg)
-            f_out.write(msg + "\n")
-            
-        log("Loading Data...")
-        method_map = load_methods_csv(METHODS_CSV)
-        enre_nodes, qname_to_id, id_to_qname, adj, reverse_adj = load_enre_json(ENRE_JSON)
-        
-        tasks = []
-        with open(FILTERED_PATH, 'r') as f:
-            for line in f:
-                if line.strip():
-                    tasks.append(json.loads(line))
-                    
-        log(f"Loaded {len(tasks)} tasks.")
-        
-        # Iterate tasks
-        for i, task in enumerate(tasks):
-            task_id = task.get('example_id', i + 1)
-            
-            # Ground Truth
-            dependency = task.get('dependency', {})
-            gt_methods = []
-            gt_methods.extend(dependency.get('intra_class', []))
-            gt_methods.extend(dependency.get('intra_file', []))
-            gt_methods.extend(dependency.get('cross_file', []))
-            
-            # Load Graph
-            gml_filename = f"task_{task_id}_ori.gml"
-            gml_path = os.path.join(OUTPUT_GRAPH_PATH, gml_filename)
-            if not os.path.exists(gml_path):            
-                log(f"Graph file not found for task {task_id}: {gml_path}")
-                continue
-            
-            try:
-                G = nx.read_gml(gml_path)
-            except Exception as e:
-                log(f"Error reading GML for task {task_id}: {e}")
-                continue
-                
-            # Get graph nodes' signatures
-            graph_sigs = set()
-            node_id_map = {} # normalized_sig -> graph_node_id (ENRE ID)
-            
-            for node_id, data in G.nodes(data=True):
-                sig = data.get('sig')
-                # Normalize
-                norm_sig = normalize_signature(sig, remove_prefix=REMOVE_FIRST_DOT_PREFIX)
-                graph_sigs.add(norm_sig)
-                
-                # We assume the node ID in NetworkX IS the ENRE ID (as I implemented in build_graph)
-                # G.nodes() yields the ID.
-                node_id_map[norm_sig] = node_id
-                
-            # Compare GT with Graph
-            missing_methods = []
-            for gt in gt_methods:            
-                if gt not in graph_sigs:
-                    missing_methods.append(gt)
-                    
-            log(f"Task {task_id}: {len(missing_methods)} missing methods out of {len(gt_methods)} GT.")
-            
-            if not missing_methods:
-                continue
-                
-            # Analyze missing methods
-            for missing in missing_methods:
-                # 1. Map to ENRE element
-                # Try to find ENRE ID for 'missing'
-                # Missing is like "mrjob.hadoop..."
-                # ENRE qnames are like "mrjob.mrjob.hadoop..." (sometimes doubled prefix)
-                # We need to match `missing` to keys in `qname_to_id`.
-                
-                found_eid = None
+    print("Loading Data...")
+    method_map = load_methods_csv(METHODS_CSV)
+    enre_nodes, qname_to_id, id_to_qname, adj, reverse_adj = load_enre_json(ENRE_JSON)
     
-                if REMOVE_FIRST_DOT_PREFIX:
-                    missing = PREFIX + '.' + missing
+    tasks = []
+    with open(FILTERED_PATH, 'r') as f:
+        for line in f:
+            if line.strip():
+                tasks.append(json.loads(line))
                 
-                # Exact match check
-                if missing in qname_to_id:
-                    found_eid = qname_to_id[missing]
-                else:
-                    # Fuzzy match: check if any qname ends with missing or vice versa
-                    # ENRE: mrjob.mrjob.x.y
-                    # Missing: mrjob.x.y
-                    # Check if qname.endswith("." + missing) or qname == "mrjob." + missing
-                    # candidates = []
-                    # for qname, eid in qname_to_id.items():
-                    #     # Check suffix match
-                    #     if qname == missing or qname.endswith("." + missing):
-                    #         candidates.append(eid)
-                    #     # Check if missing is suffix of qname (common if package prefix missing in GT)
-                    #     elif missing in qname and qname.split('.')[-len(missing.split('.')):] == missing.split('.'):
-                    #          candidates.append(eid)
-                    
-                    # if candidates:
-                    #     # Pick best? First?
-                    #     found_eid = candidates[0]
-                    pass
-                    
+    print(f"Loaded {len(tasks)} tasks.")
+
+    
+    # 统计缺失的代码元素，由什么关系可以扩展出来，key是关系类型，value是可以通过这种关系扩展出来的数量
+    missing_relation_to_cnt = {}
+    ground_truth_count = 0
+    match_count = 0
+    # ground truth中没找到，且与初始搜索结果没有关系的代码元素数量
+    no_relation_gt_count = 0
+
+
+    
+    # Iterate tasks
+    for i, task in enumerate(tasks):
+        task_id = task.get('example_id', i + 1)
+        
+        # Ground Truth
+        dependency = task.get('dependency', {})
+        gt_methods = []
+        gt_methods.extend(dependency.get('intra_class', []))
+        gt_methods.extend(dependency.get('intra_file', []))
+        gt_methods.extend(dependency.get('cross_file', []))
+
+        ground_truth_count += len(gt_methods)
+        
+        # Load Graph
+        gml_filename = f"task_{task_id}_ori.gml"
+        gml_path = os.path.join(OUTPUT_GRAPH_PATH, gml_filename)
+        if not os.path.exists(gml_path):            
+            print(f"Graph file not found for task {task_id}: {gml_path}")
+            continue
+        
+        try:
+            G = nx.read_gml(gml_path)
+        except Exception as e:
+            print(f"Error reading GML for task {task_id}: {e}")
+            continue
+            
+        # Get graph nodes' signatures
+        graph_sigs = set()
+        node_id_map = {} # normalized_sig -> graph_node_id (ENRE ID)
+        
+        for node_id, data in G.nodes(data=True):
+            sig = data.get('sig')
+            # Normalize
+            norm_sig = normalize_signature(sig, remove_prefix=REMOVE_FIRST_DOT_PREFIX)
+            graph_sigs.add(norm_sig)
+            
+            # We assume the node ID in NetworkX IS the ENRE ID (as I implemented in build_graph)
+            # G.nodes() yields the ID.
+            node_id_map[norm_sig] = node_id
+            
+        # Compare GT with Graph
+        missing_methods = []
+        for gt in gt_methods:            
+            if gt not in graph_sigs:
+                missing_methods.append(gt)
                 
-                if found_eid is None:
-                    log(f"  [Missing] {missing} -> Could not find in ENRE.")
-                    continue
-                    
-                log(f"  [Missing] {missing} -> ENRE ID {found_eid} ({id_to_qname[found_eid]}) ({enre_nodes[found_eid].get('category')})")
+        print(f"Task {task_id}: {len(missing_methods)} missing methods out of {len(gt_methods)} GT.")
+        match_count += len(gt_methods) - len(missing_methods)
+        
+        if not missing_methods:
+            continue
+            
+        # Analyze missing methods
+        for missing in missing_methods:
+            # 1. Map to ENRE element
+            # Try to find ENRE ID for 'missing'
+            # Missing is like "mrjob.hadoop..."
+            # ENRE qnames are like "mrjob.mrjob.hadoop..." (sometimes doubled prefix)
+            # We need to match `missing` to keys in `qname_to_id`.
+            
+            found_eid = None
+
+            if REMOVE_FIRST_DOT_PREFIX:
+                missing = PREFIX + '.' + missing
+            
+            # Exact match check
+            if missing in qname_to_id:
+                found_eid = qname_to_id[missing]
+            else:
+                # Fuzzy match: check if any qname ends with missing or vice versa
+                # ENRE: mrjob.mrjob.x.y
+                # Missing: mrjob.x.y
+                # Check if qname.endswith("." + missing) or qname == "mrjob." + missing
+                # candidates = []
+                # for qname, eid in qname_to_id.items():
+                #     # Check suffix match
+                #     if qname == missing or qname.endswith("." + missing):
+                #         candidates.append(eid)
+                #     # Check if missing is suffix of qname (common if package prefix missing in GT)
+                #     elif missing in qname and qname.split('.')[-len(missing.split('.')):] == missing.split('.'):
+                #          candidates.append(eid)
                 
-                # 2. Find relations with EXISTING graph nodes
-                # Check relations in ENRE (adj)
-                # Outgoing from missing
-                if found_eid in adj:
-                    for dest, kind in adj[found_eid]:
-                        dest = str(dest)
-                        if dest in G.nodes:
-                            dest_sig = G.nodes[dest].get('sig', G.nodes[dest].get('label'))
-                            log(f"    -> Relation: [Missing] --({kind})--> [Graph Node {dest}] {G.nodes[dest].get('category')} ({dest_sig})")
-                            
-                # Incoming to missing
-                if found_eid in reverse_adj:
-                    for src, kind in reverse_adj[found_eid]:
-                        src = str(src)
-                        if src in G.nodes:
-                            src_sig = G.nodes[src].get('sig', G.nodes[src].get('label'))
-                            log(f"    -> Relation: [Graph Node {src}] {G.nodes[src].get('category')} ({src_sig}) --({kind})--> [Missing]")
+                # if candidates:
+                #     # Pick best? First?
+                #     found_eid = candidates[0]
+                pass
+                
+            
+            if found_eid is None:
+                # 没有找到，是因为读入enre report时过滤掉了"Un"开头的类型，比如Unresolved attributes
+                print(f"  [Missing] {missing} -> Could not find in ENRE.")
+                no_relation_gt_count += 1
+                continue
+                
+            print(f"  [Missing] {missing} -> ENRE ID {found_eid} ({id_to_qname[found_eid]}) ({enre_nodes[found_eid].get('category')})")
+            
+
+            # 缺失的这个代码元素是否能通过某个节点扩展出来
+            found_missing_edge = False
+            # 2. Find relations with EXISTING graph nodes
+            # Check relations in ENRE (adj)
+            # Outgoing from missing
+            if found_eid in adj:
+                for dest, kind in adj[found_eid]:
+                    dest = str(dest)
+                    if dest in G.nodes:
+                        dest_sig = G.nodes[dest].get('sig', G.nodes[dest].get('label'))
+                        print(f"    -> Relation: [Missing] --({kind})--> [Graph Node {dest}] {G.nodes[dest].get('category')} ({dest_sig})")
+                        missing_relation_str = f"[Missing] {enre_nodes[found_eid].get('category')} --({kind})--> {G.nodes[dest].get('category')}"
+                        missing_relation_to_cnt[missing_relation_str] = missing_relation_to_cnt.get(missing_relation_str, 0) + 1
+                        found_missing_edge = True
+                        
+            # Incoming to missing
+            if found_eid in reverse_adj:
+                for src, kind in reverse_adj[found_eid]:
+                    src = str(src)
+                    if src in G.nodes:
+                        src_sig = G.nodes[src].get('sig', G.nodes[src].get('label'))
+                        print(f"    -> Relation: [Graph Node {src}] {G.nodes[src].get('category')} ({src_sig}) --({kind})--> [Missing]")
+                        missing_relation_str = f"{G.nodes[src].get('category')} --({kind})--> [Missing] {enre_nodes[found_eid].get('category')}"
+                        missing_relation_to_cnt[missing_relation_str] = missing_relation_to_cnt.get(missing_relation_str, 0) + 1
+                        found_missing_edge = True
+
+            # 没有找到能与初始子图相连的边
+            if not found_missing_edge:
+                no_relation_gt_count += 1
+                
+
+    print(f"Total ground truth methods: {ground_truth_count}")
+    print(f"Matched methods: {match_count}")
+    print(f"Methods without relation in GT (completely not found): {no_relation_gt_count}")
+    # missing_relation_to_cnt是一个map，打印里面每一个k-v
+    for k, v in missing_relation_to_cnt.items():
+        print(f"  {k}: {v}")
 
 if __name__ == "__main__":
     main()
