@@ -447,6 +447,7 @@ def method_summary(output_dir: str, strategy: str, language:str="python") -> Lis
         )
         functions.append(function)
     print(f"Total functions: {len(functions)}")
+    input("please input to continue")
     # 加载邻接矩阵
     # 读取 CSV 并转换为 numpy 数组，确保是整数类型
     try:

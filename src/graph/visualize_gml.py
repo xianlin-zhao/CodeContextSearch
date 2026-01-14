@@ -3,10 +3,49 @@ import networkx as nx
 from pyvis.network import Network
 from flask import Flask, render_template_string, request, send_file
 import glob
+import re
+import json
 
 app = Flask(__name__)
 
-BASE_DIR = '/data/zxl/Search2026/outputData'
+# BASE_DIR = '/data/zxl/Search2026/outputData'
+BASE_DIR = '/data/data_public/riverbag/testRepoSummaryOut'
+# Hardcoded path to the filtered jsonl file containing ground truth
+FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/filtered.jsonl'
+
+def load_ground_truth(task_id):
+    """
+    Loads ground truth methods for a specific task ID from the JSONL file.
+    Returns a set of ground truth signatures.
+    """
+    gt_sigs = set()
+    if not os.path.exists(FILTERED_JSONL_PATH):
+        print(f"Warning: Filtered JSONL file not found at {FILTERED_JSONL_PATH}")
+        return gt_sigs
+
+    try:
+        target_line_num = int(task_id)
+        current_line_num = 0
+        with open(FILTERED_JSONL_PATH, 'r') as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                current_line_num += 1
+                
+                # Check if this is the target line (1-based index)
+                if current_line_num == target_line_num:
+                    data = json.loads(line)
+                    dependency = data.get('dependency', {})
+                    gt_sigs.update(dependency.get('intra_class', []))
+                    gt_sigs.update(dependency.get('intra_file', []))
+                    gt_sigs.update(dependency.get('cross_file', []))
+                    break
+    except ValueError:
+        print(f"Error: Invalid task_id '{task_id}' - must be an integer.")
+    except Exception as e:
+        print(f"Error reading filtered JSONL: {e}")
+        
+    return gt_sigs
 
 def find_gml_files():
     gml_files = []
@@ -61,6 +100,22 @@ def view_graph(filename):
     except Exception as e:
         return f"Error reading GML file: {e}", 500
 
+    # Extract Task ID from filename (e.g., task_77_mid.gml -> 77)
+    basename = os.path.basename(filename)
+    match = re.search(r'task_(\d+)_', basename)
+    task_id = match.group(1) if match else None
+    print(f"task_id: {task_id}")
+    
+    gt_sigs = set()
+    if task_id:
+        gt_sigs = load_ground_truth(task_id)
+        print(f"gt_sigs: {gt_sigs}")
+
+    # Metrics for matching
+    matched_gt = set()
+    total_gt = len(gt_sigs)
+    print(f"total_gt: {total_gt}")
+
     # Create Pyvis network
     # Using CDN for resources to avoid local dependency issues and ensure TomSelect is available
     # Changed background to white and font color to black as requested
@@ -69,6 +124,47 @@ def view_graph(filename):
     # Process nodes for visualization
     for node_id in G.nodes():
         node = G.nodes[node_id]
+        
+        # Determine if node matches Ground Truth
+        is_gt_match = False
+        node_sig = node.get('sig')
+        
+        # Normalize signature logic (similar to analyze script, removing prefix if needed)
+        # For simplicity, we check if node_sig is in gt_sigs or if a suffix matches
+        # Assuming exact match for now based on user request "把...sig的值拿出来做匹配"
+        if node_sig:
+             # Basic normalization: remove first segment "boto." if present, as GT often lacks project prefix
+             # But user example shows GT "boto.boto..." and sig "boto.boto..." so maybe exact match is fine.
+             # However, analyze script used remove_prefix=True. Let's try flexible matching.
+             
+             # Process sig to remove the first segment (e.g., 'boto.boto.regioninfo.connect' -> 'boto.regioninfo.connect')
+             normalized_sig = node_sig
+             if '.' in node_sig:
+                 parts = node_sig.split('.')
+                 if len(parts) > 1:
+                     normalized_sig = '.'.join(parts[1:])
+             
+             if normalized_sig in gt_sigs:
+                 is_gt_match = True
+                 matched_gt.add(normalized_sig)
+             else:
+                 # Try removing first 'boto.' prefix if it exists twice? 
+                 # Or just check if any GT ends with this sig or vice versa?
+                 # Let's stick to exact match first as per prompt imply, 
+                 # but maybe handle the common 'boto.' prefix issue if needed.
+                 # User said: "这里的就把boto.boto.regioninfo.connect拿出来做匹配即可。" which implies direct string match.
+                 pass
+
+        # Set color for GT nodes
+        if is_gt_match:
+            node['color'] = 'red'
+            node['title'] = (node.get('title', '') + "<br><b>STATUS:</b> GROUND TRUTH MATCH").strip()
+            # Make GT nodes slightly larger
+            node['size'] = 20
+        else:
+            node['color'] = '#97c2fc' # Default blue-ish
+            node['size'] = 10
+
         
         # Set label to sig if available, else use existing label or id
         if 'sig' in node:
@@ -121,6 +217,18 @@ def view_graph(filename):
 
     net.from_nx(G)
     
+    # Add stats to the UI (using a custom heading injection)
+    match_count = len(matched_gt)
+    missing_gt = gt_sigs - matched_gt
+    missing_count = len(missing_gt)
+    
+    # Helper to format list for HTML
+    def format_list(items):
+        if not items:
+            return "<i>None</i>"
+        return "<ul style='margin: 5px 0; padding-left: 20px; font-size: 10px; max-height: 100px; overflow-y: auto;'>" + \
+               "".join([f"<li>{item}</li>" for item in sorted(items)]) + "</ul>"
+
     # Set options for better physics/layout
     net.set_options("""
     var options = {
@@ -128,8 +236,14 @@ def view_graph(filename):
         "font": {
           "size": 12
         },
-        "shape": "dot",
-        "size": 10
+        "shape": "dot"
+      },
+      "edges": {
+        "color": {
+          "color": "#848484",
+          "inherit": false
+        },
+        "smooth": false
       },
       "physics": {
         "forceAtlas2Based": {
@@ -149,12 +263,35 @@ def view_graph(filename):
     }
     """)
     
-    # Save to a temporary file and serve it
-    output_path = os.path.join(os.path.dirname(file_path), "temp_viz.html")
-    # Make sure we don't overwrite anything important, maybe use a temp dir but for now next to file is okay or just render string
-    # Pyvis write_html writes to file. generate_html returns string.
-    
     html_content = net.generate_html()
+    
+    # Inject stats into the HTML body
+    # Moved to bottom-left (bottom: 10px, left: 10px)
+    # Added collapsible details (<details>)
+    stats_html = f"""
+    <div style="position: absolute; bottom: 10px; left: 10px; z-index: 1000; background: rgba(255, 255, 255, 0.9); padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); max-width: 300px; max-height: 80vh; overflow-y: auto;">
+        <h3 style="margin-top: 0; font-size: 16px;">Analysis for Task {task_id}</h3>
+        
+        <details>
+            <summary style="cursor: pointer; font-weight: bold;">Ground Truth Total: {total_gt}</summary>
+            {format_list(gt_sigs)}
+        </details>
+        
+        <details>
+            <summary style="cursor: pointer; font-weight: bold; color: red;">Matched (In Graph): {match_count}</summary>
+            {format_list(matched_gt)}
+        </details>
+        
+        <details open>
+            <summary style="cursor: pointer; font-weight: bold;">Missing: {missing_count}</summary>
+            {format_list(missing_gt)}
+        </details>
+    </div>
+    """
+    
+    # Insert stats after <body> tag
+    html_content = html_content.replace('<body>', '<body>' + stats_html)
+    
     return html_content
 
 if __name__ == '__main__':

@@ -9,13 +9,18 @@ from collections import defaultdict
 import torch
 import torch.nn.functional as F
 import numpy as np
+import sys
+sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
+
 from search.search_models.unixcoder import UniXcoder
 
-METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/methods.csv"
-ENRE_JSON = "/data/zxl/Search2026/CodeContextSearch/src/summarization/mrjob-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/mrjob-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/bm25code_graph_results"
 PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System"
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database"
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
     if device is None:

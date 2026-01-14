@@ -12,23 +12,23 @@ from tqdm import tqdm
 from utils.query_refine import refine_query
 
 # PROJECT_PATH = "Internet/boto"
-# PROJECT_PATH = "System/mrjob"
-PROJECT_PATH ="Database/alembic"
+PROJECT_PATH = "System/mrjob"
+# PROJECT_PATH ="Database/alembic"
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/methods.csv" 
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/filtered.jsonl" 
-# refined_queries_cache_path= '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/refined_queries.json'
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/methods.csv" 
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/filtered.jsonl" 
+refined_queries_cache_path= '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/refined_queries.json'
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/methods.csv" 
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/filtered.jsonl" 
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/refined_queries.json'
+# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/features.csv" 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/methods.csv" 
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/filtered.jsonl" 
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/refined_queries.json'
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/methods.csv" 
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/refined_queries.json' 
+# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/features.csv" 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/methods.csv" 
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/filtered.jsonl" 
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/refined_queries.json' 
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
@@ -284,7 +284,7 @@ def analyze_project(project_path):
 
     # Output results
     out_dir = os.path.dirname(FILTERED_PATH)
-    hybrid_path = os.path.join(out_dir, "diagnostic_hybrid.jsonl")
+    hybrid_path = os.path.join(out_dir, "diagnostic_hybrid_feature_BM25Code.jsonl")
     with open(hybrid_path, "w", encoding="utf-8") as fo:
         for rec in hybrid_records:
             fo.write(json.dumps(rec, ensure_ascii=False) + "\n")

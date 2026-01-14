@@ -165,7 +165,7 @@ def main(project_root: str, output_dir: str):
         weight_parameter=0.25,
         # gamma_min=0.005, gamma_max=0.15, n_points=24, #mrjob
         #gamma_min=0.05, gamma_max=0.2, n_points=24, #boto
-        gamma_min=0.05, gamma_max=0.15, n_points=24,
+        gamma_min=0.05, gamma_max=0.3, n_points=24,
         seeds_per_gamma=8,
         use_knn=True, knn_k=20,
         use_threshold=False, threshold_tau=0.0,
@@ -213,7 +213,7 @@ if __name__ == "__main__":
     project_root = "/data/data_public/riverbag/Datasets/DevEval/alembic"
     # repoSummary结果的保存路径
     # output_dir = os.path.join(here, "out/boto")
-    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/alembic/newTry"
+    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic"
     # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/newTry"
     # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40"
     main(
