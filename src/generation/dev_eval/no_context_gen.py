@@ -16,8 +16,8 @@ from utils.source_code_utils import resolve_signature
 
 
 SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/filtered.jsonl"
-OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/System_mrjob/0104/no_context/deepseek_completion.jsonl"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/NoFilited/mrjob/1:3/filtered.jsonl"
+OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/System_mrjob/0104/no_context/deepseek_no_money.jsonl"
 MODEL_NAME = "deepseek-v3"
 MODEL_BACKEND_CHOICE = "openai"
 
