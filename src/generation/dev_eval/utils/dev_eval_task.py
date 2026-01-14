@@ -8,6 +8,7 @@ class DevEvalTask:
     completion_path: str
     signature_position: Tuple[int, int]
     requirement_text: str
+    dependency: list[str] = None
     indent: Optional[int] = None
 
 
@@ -21,6 +22,12 @@ def parse_task(record: Dict[str, Any]) -> DevEvalTask:
     namespace = record.get("namespace")
     completion_path = record.get("completion_path")
     signature_position = record.get("signature_position")
+
+    task_dependency = record.get('dependency', {})
+    dependency = []
+    dependency.extend(task_dependency.get('intra_class', []))
+    dependency.extend(task_dependency.get('intra_file', []))
+    dependency.extend(task_dependency.get('cross_file', []))
 
     if not isinstance(namespace, str) or not namespace:
         raise ValueError("Task missing valid 'namespace'")
@@ -48,6 +55,7 @@ def parse_task(record: Dict[str, Any]) -> DevEvalTask:
         completion_path=completion_path,
         signature_position=(start, end),
         requirement_text=requirement_text,
+        dependency=dependency,
         indent=indent,
     )
 
