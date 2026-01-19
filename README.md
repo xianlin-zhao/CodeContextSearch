@@ -18,15 +18,15 @@ DevEval位于服务器 `/data/lowcode_public/DevEval`，其中data_have_dependen
 
 4.基于一些规则，对初始子图的某些节点进行**扩展**（具体的规则仍在探索中）；
 
-5.对扩展后的子图的结果进行筛选，保留重要程度较高的节点（目前尝试使用一些图算法，不基于LLM筛选），作为最终的**推理子图**
+5.对扩展后的子图的结果进行筛选，保留重要程度较高的节点（目前尝试使用一些图算法，不基于LLM筛选），作为最终的**推理子图**；
+
+6.将推理子图的内容作为context，LLM根据自然语言需求和搜索到的context，生成代码
 
 
 
 目前这些步骤是分离的，并没有实现成完整的接口，主要是为了探索每个阶段的方法。
 
-目前还没有实现将推理子图的内容作为context，生成代码，近期需要实现，以跑通完整的流程。
-
-目前的实验都仅在DevEval的个别项目上开展，还没有在完整的benchmark上进行实验。之后除了DevEval，还会在SWE-Bench上针对代码定位任务进行实验。
+目前的实验都仅在DevEval的个别项目上开展，还没有在完整的benchmark上进行实验。之后除了DevEval，还会再找其他的benchmark进行实验。
 
 
 
@@ -94,8 +94,10 @@ OPENAI_BASE_URL=xxxx
 * FILTERED_PATH：这里可以是新建的文件，用于保存特定repo相关的任务
 * DIAGNOSTIC_JSONL：上一步搜索结果的文件
 * OUTPUT_GRAPH_PATH：输出结果保存在哪个文件夹。对于repo的每一个任务，都会生成一个`task_{task_id}_ori.gml`文件，这是networkx库使用的标准格式文件，保存图的节点和边
+* REMOVE_FIRST_DOT_PREFIX：与上面的NEED_METHOD_NAME_NORM类似，现在我们生成的代码元素名称格式与DevEval相同，所以这里默认为False
+* PREFIX：如果REMOVE_FIRST_DOT_PREFIX为True，则要注意修改这里的项目名称
 
-另外，DIAGNOSTIC_JSONL的内容较为复杂，在读入搜索结果时，目前使用的是`preds = rec["hybrid"]["recall_top3_clusters"]["rank_top10"]["predictions"]`的结果来建图，也就是在top3的feature所关联到的method中，根据BM25重排得到的top10 method，可根据需要来修改。
+另外，DIAGNOSTIC_JSONL的内容较为复杂，在读入搜索结果时，目前使用的是`preds = rec["hybrid"]["recall_top7_clusters"]["rank_top10"]["predictions"]`的结果来建图（这是根据实验，得到的比较好的结果），也就是在top7的feature所关联到的method中，根据BM25重排得到的top10 method，可根据需要来修改。
 
 
 
@@ -113,6 +115,7 @@ OPENAI_BASE_URL=xxxx
 * ENRE_JSON：RepoSummary生成的中间结果，是用xjtu-enre工具对repo做静态分析得到的结果，文件名称通常是xxxx-report-enre.json
 * FILTERED_PATH：这里可以是新建的文件，用于保存特定repo相关的任务
 * OUTPUT_GRAPH_PATH：输出结果保存在哪个文件夹，可以和建图的结果保存在一个文件夹里，对于repo的每一个任务，先会生成一个`task_{task_id}_mid.gml`文件，代表扩展之后的结果，然后会生成`task_{task_id}_rank.gml`，代表pagerank筛选之后，排名top 15的节点所对应的子图
+* PROJECT_PATH：项目源代码路径的**上一层**，比如说项目源代码在`/data/lowcode_public/DevEval/Source_Code/Internet/boto`，这里就应该填`/data/lowcode_public/DevEval/Source_Code/Internet`，这个参数主要是用于跟代码元素所在文件的路径做拼接
 
 
 
@@ -120,7 +123,7 @@ OPENAI_BASE_URL=xxxx
 
 
 
-TODO：需要确认一下pagerank的效果，后续可根据目前调研到的论文，尝试更多方法（以下是一些KGQA的论文）
+TODO 1：需要确认一下pagerank的效果，后续可根据目前调研到的论文，尝试更多方法（以下是一些KGQA的论文，在此记录）
 
 * HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models (Neurips 24)
 * From RAG to Memory: Non-Parametric Continual Learning for Large Language Models (ICML 25)
@@ -130,15 +133,45 @@ TODO：需要确认一下pagerank的效果，后续可根据目前调研到的�
 * AGRAG: Advanced Graph-based Retrieval-Augmented Generation for LLMs (arxiv 2511)
   * MCMI 最小代价最大影响子图生成
 
+TODO 2：需要多看例子，不一定要采用扩展-筛选的方式，可以参考同文件里其他函数对应的依赖关系
 
+TODO 3：扩展的时候不局限于1-hop关系，可以看没搜到的元素与搜到的dependency之间的**路径**，可能存在multi-hop关系
 
-### 在Dev上进行代码生成
+ 
 
-TODO
+### 5. 在DevEval上进行代码生成
 
-目前的计划是：用以上步骤得到的搜索结果，作为context提供给LLM。同时，这些context不只是简单的文本拼接，而是以图的形式，不仅包含具体的代码，还包括这些代码之间的关系（这个idea在ICSE 26的一篇论文GRACE中也提到了）。
+这一步要做的是：用以上步骤得到的搜索结果，作为context提供给LLM，做代码生成。
+
+TODO：希望这些context不只是简单的文本拼接，而是以图的形式，不仅包含具体的代码，还包括这些代码之间的关系（这个idea在ICSE 26的一篇论文GRACE中也提到了）。
 
 期望的结果是：由于前面的搜索结果更加准确相关，能搜到待完成的method所依赖的更多代码元素，所以LLM的代码生成效果有所提高，且使用了更多应该用的依赖，即Pass@k和Recall@k会提高。
+
+在`/src/generation`目录下，首先需要建一个`.env`文件，里面是用于代码生成的API key信息，可以复用RepoSummary阶段的`.env`文件。
+
+目前有3种代码生成的方式：
+
+* No Context：直接给LLM自然语言需求和待生成函数的签名，没有任何别的内容 `src/generation/no-contex_gen.py`
+* BM25 / embedding based-RAG：用自然语言需求在repo的函数里进行检索，选top-N最相似的，作为context。可以用BM25 / Unixcoder / feature / feature + BM25 rerank这些检索方式 `src/generation/base_rag_gen.py`，关于不同的检索方式究竟用什么搜索结果，可以看`get_searched_context_code`函数
+* Graph based-RAG：用之前构建的推理子图，用图上的内容作为context `src/generation/graph_rag_gen.py`
+
+生成代码时，修改：
+
+* SOURCE_CODE_DIR：DevEval数据集源代码的总路径，比如/data/lowcode_public/DevEval/Source_Code
+* FILTERED_PATH：特定repo上的任务，jsonl，应该是之前的步骤已经生成好了的
+* OUTPUT_COMPLETION_PATH：将代码补全的结果存在哪里，jsonl
+* METHODS_CSV：RepoSummary提取出的repo中所有method的信息
+* ENRE_JSON：对repo做静态分析得到的结果，用于计算context recall时考虑变量是否被包含
+* DIAGNOSTIC_JSONL：搜索结果，jsonl
+* RAG_DATA_SOURCE：RAG使用的策略，目前有"bm25", "unixcoder", "feature", "feature+bm25"
+* GRAPH_DIR_PATH：上一步把图保存在哪个文件夹里，会按照FILTERED_PATH中任务的顺序，依次读取task_1_rank.gml, task_2_rank.gml......，作为context
+* MODEL_NAME：生成代码使用的LLM名称
+* MODEL_BACKEND_CHOICE：以什么方式调用LLM，目前有openai方式和ollama方式，ollama方式还没有测试过
+* DEBUG：是否打印调试信息，如果为True，会把prompt和LLM的响应结果都打印出来，建议在试新的prompt或策略时，可以打印出来看看
+* GENERATION_FLAG：是否做代码生成，默认True。如果只想统计context recall，那么设置为False，就不会真的生成代码，而是只看搜索结果
+
+PROMPT_TEMPLATE是具体的prompt内容，要替换的地方用{{}}来标识
+
 
 
 
