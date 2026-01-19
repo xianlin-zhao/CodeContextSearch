@@ -18,18 +18,21 @@ from utils.source_code_utils import resolve_signature
 
 
 SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl"
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv"
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/diagnostic_bm25_code.jsonl"
-OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/System_mrjob/0104/bm25_rag/deepseek_completion.jsonl"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/diagnostic_unixcoder_code.jsonl"
+OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/Internet_boto/0115/unixcoder_rag_completion.jsonl"
+
+# 代码生成使用的大模型
 MODEL_NAME = "deepseek-v3"
 MODEL_BACKEND_CHOICE = "openai"
 
 # RAG使用的数据源，目前有几种："bm25", "unixcoder", "feature", "feature+bm25"
-RAG_DATA_SOURCE = "bm25"
+RAG_DATA_SOURCE = "unixcoder"
 
 DEBUG = True  # 是否打印调试信息
-GENERATION_FLAG = False  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
+GENERATION_FLAG = True  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
 
 PROMPT_TEMPLATE = (
     "Please complete the function in the given Python code"
@@ -37,7 +40,7 @@ PROMPT_TEMPLATE = (
     "Constraints:\n"
     "- Output only the completion that should follow the given signature!\n"
     "- Do not repeat the signature!\n"
-    "- Do not repeat the requirement comment!\n\n"
+    "- Do not repeat the requirement comment!\n"
     "- You can reference the code fragments from the repo to help you complete the function!\n\n"
     "Here are some relevant code fragments from the repo:\n"
     "{{context_code_in_prompt}}\n\n\n\n"
@@ -53,6 +56,9 @@ PROMPT_TEMPLATE = (
 # 全局变量，存储所有method的信息，用于根据签名获取完整的代码
 method_sig_to_info = {}
 
+# 存储所有的变量，集合
+variables_enre = set()
+
 # 读入之前处理的所有method信息
 def load_methods_info(methods_csv: str) -> None:
     df_methods = pd.read_csv(methods_csv)
@@ -63,6 +69,20 @@ def load_methods_info(methods_csv: str) -> None:
         method_sig_to_info[sig] = row.to_dict()
 
     print(f"Loaded {len(method_sig_to_info)} methods from CSV.")
+
+
+def load_enre_json(json_path):
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+    
+    variables = data.get('variables', [])
+    
+    for var in variables:
+        if not var.get('category', '').startswith('Un'):
+            # 把所有Variable类型的代码元素记录下来
+            if var.get('category') == 'Variable':
+                qname = var['qualifiedName']
+                variables_enre.add(qname)
 
 
 # 读入之前搜索的结果（包含是否match等指标）
@@ -152,6 +172,17 @@ def compute_task_recall(
     }
     dep_total = len(dep_set)
     hit = len(dep_set & retrieved_set) if dep_total > 0 else 0
+    
+    for x in dep:
+        if x in variables_enre:
+            var_name = x.split('.')[-1]
+            # 如果这个dependency里面的变量在某段搜到的代码中，就也认为是成功召回
+            for context_code in searched_context_code_list:
+                code_detail = context_code.get("method_code")
+                if var_name in code_detail:
+                    hit += 1
+                    break
+
     recall = (hit / dep_total) if dep_total > 0 else None
     return {
         "dependency_total": dep_total,
@@ -227,6 +258,7 @@ def generate_completions(
 
         # 获取该任务对应的代码搜索结果
         searched_context_code_list = get_searched_context_code(task, diag_record)
+        print(f"code len: {len(searched_context_code_list)}")
         context_code_in_prompt = assemble_context_code_into_prompt(searched_context_code_list)
 
         # 计算该任务的context recall
@@ -330,4 +362,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     load_methods_info(METHODS_CSV)
+    load_enre_json(ENRE_JSON)
     main()

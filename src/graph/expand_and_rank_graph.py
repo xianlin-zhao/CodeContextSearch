@@ -11,11 +11,11 @@ import torch.nn.functional as F
 import numpy as np
 from search.search_models.unixcoder import UniXcoder
 
-METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/methods.csv"
-ENRE_JSON = "/data/zxl/Search2026/CodeContextSearch/src/summarization/mrjob-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1112_codet5/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/graph_results"
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
     if device is None:
