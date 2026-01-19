@@ -217,7 +217,7 @@ if __name__ == "__main__":
     # repoSummary结果的保存路径
     # output_dir = os.path.join(here, "out/boto")
     # output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/boto/1112_codet5"
-    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/newTryTry"
+    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob"
     # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40"
     main(
         project_root=project_root,

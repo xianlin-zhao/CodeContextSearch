@@ -9,6 +9,9 @@ from collections import defaultdict
 import torch
 import torch.nn.functional as F
 import numpy as np
+import sys
+sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
+
 from search.search_models.unixcoder import UniXcoder
 
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"

@@ -13,21 +13,21 @@ from search_models.unixcoder import UniXcoder
 # METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
 # FILTERED_FILE = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl"
 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1122_codet5/methods.csv" 
-# FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1122_codet5/filtered.jsonl"
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1122_codet5/refined_queries.json' 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
+FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl"
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json' 
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/features.csv" 
-FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/filtered.jsonl"
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/refined_queries.json' 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
+# FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40/methods.csv" 
-# FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40/filtered.jsonl"
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40/refined_queries.json' 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv" 
+# FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl"
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/refined_queries.json' 
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
-NEED_METHOD_NAME_NORM = True
-USE_REFINED_QUERY = True
+NEED_METHOD_NAME_NORM = False
+USE_REFINED_QUERY = False
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
 	"""
@@ -121,7 +121,10 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 
 	# read filtered queries
 	with open(filtered_file, 'r') as f:
+		example_counter = 0
+		unixcoder_records = []
 		for line in f:
+			example_counter += 1
 			data = json.loads(line.strip())
 			# collect deps
 			deps = []
@@ -162,6 +165,12 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 			with torch.no_grad():
 				sims = torch.mm(nl_emb, code_embs_device.t()).squeeze(0)  # shape (N,)
 			# get topk indices for each k
+			unixcoder_record = {
+				"example_id": example_counter,
+				"query": query,
+				"ground_truth": deps,
+				"unixcoder_code": {}
+			}
 			for k in topk_list:
 				if sims.numel() == 0:
 					topk_idx = np.array([], dtype=int)
@@ -169,13 +178,34 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 					topk_idx = torch.topk(sims, k=min(k, sims.numel()), largest=True).indices.cpu().numpy()
 				# predicted method signatures
 				pred_methods = [method_signatures[i] for i in topk_idx]
-				pred_counts[k] += len(pred_methods)
-				# matching: if a dependency name appears in the predicted signature string
-				for dep in deps:
-					for method in pred_methods:
-						if dep in method:
-							match_counts[k] += 1
-							break
+				num_pred = len(pred_methods)
+				num_match = sum(1 for dep in deps if any(dep in m for m in pred_methods))
+				num_gt = len(deps)
+				precision = (num_match / num_pred) if num_pred > 0 else 0
+				recall = (num_match / num_gt) if num_gt > 0 else 0
+				f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+				pred_counts[k] += num_pred
+				match_counts[k] += num_match
+
+				unixcoder_record["unixcoder_code"][f"top{k}"] = {
+					"metrics": {
+						"P": precision,
+						"R": recall,
+						"F1": f1,
+						"pred": num_pred,
+						"match": num_match,
+						"gt": num_gt
+					},
+					"predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in pred_methods]
+				}
+			unixcoder_records.append(unixcoder_record)
+
+	out_dir = os.path.dirname(filtered_file)
+	unixcoder_path = os.path.join(out_dir, "diagnostic_unixcoder_code.jsonl")
+	with open(unixcoder_path, "w", encoding="utf-8") as uo:
+		for rec in unixcoder_records:
+			uo.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 	# print metrics
 	def safe_div(a, b):

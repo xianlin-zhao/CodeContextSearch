@@ -164,12 +164,12 @@ def main(project_root: str, output_dir: str):
         method_clusters,
         weight_parameter=0.25,
         # gamma_min=0.005, gamma_max=0.15, n_points=24, #mrjob
-        gamma_min=0.01, gamma_max=0.1, n_points=24, #boto
+        gamma_min=0.05, gamma_max=0.15, n_points=24, #boto
         #gamma_min=0.1, gamma_max=0.85, n_points=40,
         seeds_per_gamma=8,
         use_knn=True, knn_k=20,
         use_threshold=False, threshold_tau=0.0,
-        min_clusters=2, max_clusters_ratio=0.1,
+        min_clusters=2, max_clusters_ratio=0.15,
         use_silhouette=False, silhouette_sample_size=None,
         objective="CPM",
         consensus_tau=0.6, consensus_gamma=0.1,
@@ -213,7 +213,7 @@ if __name__ == "__main__":
     # project_root = "/data/data_public/riverbag/Datasets/DevEval/alembic"
     # repoSummary结果的保存路径
     # output_dir = os.path.join(here, "out/boto")
-    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/boto/0.2_0.15"
+    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto"
     # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/newTry"
     # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40"
     main(

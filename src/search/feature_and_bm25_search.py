@@ -14,30 +14,30 @@ from utils.query_refine import refine_query
 # PROJECT_PATH = "Internet/boto"
 PROJECT_PATH ="Database/alembic"
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/methods.csv" 
-# METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/methods_with_desc.csv"
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:7.6/filtered.jsonl" 
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/refined_queries.json' 
+# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
+# METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods_with_desc.csv"
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl" 
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json' 
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/methods.csv" 
-# METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/methods_with_desc.csv"
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:8/filtered.jsonl"
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:5/refined_queries.json' 
+# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/features.csv" 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
+# METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods_with_desc.csv"
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/methods.csv" 
-METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/methods_with_desc.csv"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/refined_queries.json' 
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv" 
+METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods_with_desc.csv"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl" 
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/refined_queries.json' 
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
-NEED_METHOD_NAME_NORM = True
-USE_REFINED_QUERY = True
+NEED_METHOD_NAME_NORM = False
+USE_REFINED_QUERY = False
 
 def analyze_project(project_path):
     # Create output directory
@@ -69,7 +69,7 @@ def analyze_project(project_path):
         base_names = df['method_name'].astype(str).str.split('(').str[0]
         df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
         method_names = df['method_name_norm'].unique().tolist()
-    print(method_names[:30])
+    #print(method_names[:30])
 
     # #model = SentenceTransformer('all-mpnet-base-v2')
     # model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -175,8 +175,11 @@ def analyze_project(project_path):
             deps.extend(data['dependency']['intra_class'])
             deps.extend(data['dependency']['intra_file'])
             deps.extend(data['dependency']['cross_file'])
+            # print("deps",deps)
             #清洗/过滤
             deps = [dep for dep in deps if dep in method_names]
+            # print("deps after filter",deps)
+            # input("please confirm the deps!")
             #将本条测试数据的正确答案数量累加到总数中
             top_gt += len(deps)
 
