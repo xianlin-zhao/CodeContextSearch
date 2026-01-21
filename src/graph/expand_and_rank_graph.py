@@ -14,13 +14,11 @@ sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
 
 from search.search_models.unixcoder import UniXcoder
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/feature_graph_results"
-#PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
-#PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database" #alembic
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
     if device is None:
@@ -420,8 +418,7 @@ def main():
             ppr_scores = personalization
             
         # Select Top-K
-        #K = 15
-        K = 20
+        K = 15
         sorted_nodes = sorted(ppr_scores.items(), key=lambda x: x[1], reverse=True)
         top_k_nodes = [n for n, s in sorted_nodes[:K]]
         

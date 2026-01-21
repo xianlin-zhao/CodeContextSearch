@@ -5,11 +5,12 @@ import networkx as nx
 import os
 from collections import defaultdict
 
+
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/diagnostic_feature.jsonl"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/feature_graph_results"
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/diagnostic_hybrid_feature_BM25Code_6_7_8.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = False
 PREFIX = "boto"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
@@ -112,8 +113,9 @@ def build_graph():
         preds = []
         try:
             # 目前这里只选取top3的feature对应的结果，作为初始子图
-            preds = rec["feature"]["top3"]["predictions"]
-            #preds = rec["hybrid"]["recall_top3_clusters"]["rank_top10"]["predictions"]
+            # preds = rec["feature"]["top3"]["predictions"]
+            # 选择top7 cluster + BM25 top10的结果
+            preds = rec["hybrid"]["recall_top7_clusters"]["rank_top10"]["predictions"]
             # 过滤掉preds中method == task_namespace的项，也就是待补全的ground truth的代码
             filtered_preds = [p for p in preds if (p['method'] if '(' not in p['method'] else p['method'].split('(')[0]) != task_namespace]
             if len(filtered_preds) != len(preds):
