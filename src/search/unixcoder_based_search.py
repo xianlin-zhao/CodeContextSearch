@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 import pandas as pd
 import numpy as np
+from typing import Any, Dict, Optional
 from search_models.unixcoder import UniXcoder
 
 # METHODS_CSV = "/data/zxl/Search2026/outputData/repoSummaryOut/mrjob/1111/methods.csv"
@@ -16,18 +17,74 @@ from search_models.unixcoder import UniXcoder
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
 FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl"
 refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json' 
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
 # FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
 # refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
+# ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv" 
 # FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl"
 # refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/refined_queries.json' 
+# ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json"
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False
 USE_REFINED_QUERY = False
+
+variables_enre = set()
+
+
+def load_enre_json(json_path: str) -> None:
+	with open(json_path, "r") as f:
+		data = json.load(f)
+
+	variables = data.get("variables", [])
+	for var in variables:
+		if not var.get("category", "").startswith("Un") and var.get("category") == "Variable":
+			qname = var.get("qualifiedName")
+			if qname:
+				variables_enre.add(qname)
+
+
+def _normalize_symbol(s: str) -> str:
+	if "(" in s:
+		return s.split("(", 1)[0]
+	return s
+
+
+def compute_task_recall(
+	dependency: Optional[list[str]],
+	searched_context_code_list: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+	dep = dependency or []
+	retrieved_set = {
+		_normalize_symbol(str(x.get("method_signature", "")))
+		for x in searched_context_code_list
+		if isinstance(x, dict)
+	}
+	dep_total = len(dep)
+	hit = 0
+
+	for x in dep:
+		if x in retrieved_set:
+			hit += 1
+			continue
+		if x in variables_enre:
+			var_name = x.split(".")[-1]
+			for context_code in searched_context_code_list:
+				code_detail = context_code.get("method_code") or ""
+				if var_name in code_detail:
+					hit += 1
+					break
+
+	recall = (hit / dep_total) if dep_total > 0 else None
+	return {
+		"dependency_total": dep_total,
+		"dependency_hit": hit,
+		"recall": recall,
+	}
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
 	"""
@@ -93,6 +150,8 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 		methods_df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
 		method_names = methods_df['method_name_norm'].unique().tolist()
 
+	load_enre_json(ENRE_JSON)
+
 	# load model and device
 	model, device = load_unixcoder_model(model_path)
 
@@ -133,7 +192,7 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 			deps.extend(data['dependency']['cross_file'])
 			# filter deps to known method names (method name without args)
 			
-			deps = [dep for dep in deps if dep in method_names]
+			# deps = [dep for dep in deps if (dep in method_names) or (dep in variables_enre)]
 			total_gt += len(deps)
 
 			# build natural language query
@@ -178,11 +237,19 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 					topk_idx = torch.topk(sims, k=min(k, sims.numel()), largest=True).indices.cpu().numpy()
 				# predicted method signatures
 				pred_methods = [method_signatures[i] for i in topk_idx]
+				searched_context_code_list = [
+					{
+						"method_signature": method_signatures[i],
+						"method_code": method_codes[i],
+					}
+					for i in topk_idx
+				]
 				num_pred = len(pred_methods)
-				num_match = sum(1 for dep in deps if any(dep in m for m in pred_methods))
-				num_gt = len(deps)
+				recall_info = compute_task_recall(deps, searched_context_code_list)
+				num_match = int(recall_info["dependency_hit"])
+				num_gt = int(recall_info["dependency_total"])
 				precision = (num_match / num_pred) if num_pred > 0 else 0
-				recall = (num_match / num_gt) if num_gt > 0 else 0
+				recall = float(recall_info["recall"]) if recall_info["recall"] is not None else 0
 				f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
 
 				pred_counts[k] += num_pred
@@ -197,7 +264,7 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 						"match": num_match,
 						"gt": num_gt
 					},
-					"predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in pred_methods]
+					"predictions": [{"method": m, "match": (_normalize_symbol(m) in deps)} for m in pred_methods]
 				}
 			unixcoder_records.append(unixcoder_record)
 
