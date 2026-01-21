@@ -7,9 +7,9 @@ import pandas as pd
 from collections import defaultdict
 
 # Configuration
-GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/graph_results'
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/alembic_match_comparison_report.csv'
+GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/feature_graph_results'
+FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl'
+OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/20feature_match_comparison_report.csv'
 
 def load_ground_truth(task_id):
     """
@@ -49,7 +49,7 @@ def get_matched_count(gml_path, gt_sigs):
     """
     Reads a GML file and counts how many of its nodes match the Ground Truth signatures.
     """
-    if not os.path.exists(gml_path):
+    if not gml_path or not os.path.exists(gml_path):
         return 0
     
     try:
@@ -64,14 +64,22 @@ def get_matched_count(gml_path, gt_sigs):
         node_sig = node.get('sig')
         
         if node_sig:
-             # Normalize logic matching visualize_gml.py
-             normalized_sig = node_sig
-             if '.' in node_sig:
-                 parts = node_sig.split('.')
-                 if len(parts) > 1:
-                     normalized_sig = '.'.join(parts[1:])
-             
-             if normalized_sig in gt_sigs:
+             #print(f"Node ID: {node_id}, Signature: {node_sig}")
+             candidates = {node_sig}
+             if '(' in node_sig:
+                 candidates.add(node_sig.split('(')[0])
+
+             expanded_candidates = set()
+             for cand in candidates:
+                 expanded_candidates.add(cand)
+                #  if '.' in cand:
+                #      parts = cand.split('.')
+                #      if len(parts) > 1:
+                #          expanded_candidates.add('.'.join(parts[1:]))
+                #      if len(parts) > 2 and parts[0] == parts[1]:
+                #          expanded_candidates.add('.'.join(parts[2:]))
+
+             if any(c in gt_sigs for c in expanded_candidates):
                  matched_count += 1
                  
     return matched_count
@@ -104,6 +112,7 @@ def main():
         
         # Load GT
         gt_sigs = load_ground_truth(task_id)
+        #print(f"Ground Truth Signatures for Task {task_id}: {gt_sigs}")
         gt_total = len(gt_sigs)
         
         # Calculate matches

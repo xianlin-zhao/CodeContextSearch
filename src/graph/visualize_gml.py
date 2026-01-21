@@ -9,9 +9,9 @@ import json
 app = Flask(__name__)
 
 # BASE_DIR = '/data/zxl/Search2026/outputData'
-BASE_DIR = '/data/data_public/riverbag/testRepoSummaryOut'
+BASE_DIR = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/feature_graph_results'
 # Hardcoded path to the filtered jsonl file containing ground truth
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/filtered.jsonl'
+FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl'
 
 def load_ground_truth(task_id):
     """
@@ -133,27 +133,24 @@ def view_graph(filename):
         # For simplicity, we check if node_sig is in gt_sigs or if a suffix matches
         # Assuming exact match for now based on user request "把...sig的值拿出来做匹配"
         if node_sig:
-             # Basic normalization: remove first segment "boto." if present, as GT often lacks project prefix
-             # But user example shows GT "boto.boto..." and sig "boto.boto..." so maybe exact match is fine.
-             # However, analyze script used remove_prefix=True. Let's try flexible matching.
-             
-             # Process sig to remove the first segment (e.g., 'boto.boto.regioninfo.connect' -> 'boto.regioninfo.connect')
-             normalized_sig = node_sig
-             if '.' in node_sig:
-                 parts = node_sig.split('.')
-                 if len(parts) > 1:
-                     normalized_sig = '.'.join(parts[1:])
-             
-             if normalized_sig in gt_sigs:
+             candidates = {node_sig}
+             if '(' in node_sig:
+                 candidates.add(node_sig.split('(')[0])
+
+             expanded_candidates = set()
+             for cand in candidates:
+                 expanded_candidates.add(cand)
+                #  if '.' in cand:
+                #      parts = cand.split('.')
+                #      if len(parts) > 1:
+                #          expanded_candidates.add('.'.join(parts[1:]))
+                #      if len(parts) > 2 and parts[0] == parts[1]:
+                #          expanded_candidates.add('.'.join(parts[2:]))
+
+             matched_sig = next((c for c in expanded_candidates if c in gt_sigs), None)
+             if matched_sig is not None:
                  is_gt_match = True
-                 matched_gt.add(normalized_sig)
-             else:
-                 # Try removing first 'boto.' prefix if it exists twice? 
-                 # Or just check if any GT ends with this sig or vice versa?
-                 # Let's stick to exact match first as per prompt imply, 
-                 # but maybe handle the common 'boto.' prefix issue if needed.
-                 # User said: "这里的就把boto.boto.regioninfo.connect拿出来做匹配即可。" which implies direct string match.
-                 pass
+                 matched_gt.add(matched_sig)
 
         # Set color for GT nodes
         if is_gt_match:

@@ -11,34 +11,34 @@ from rank_bm25 import BM25Okapi
 from tqdm import tqdm
 from utils.query_refine import refine_query
 
+# PROJECT_PATH = "System/mrjob"
 # PROJECT_PATH = "Internet/boto"
-PROJECT_PATH = "System/mrjob"
-# PROJECT_PATH ="Database/alembic"
+PROJECT_PATH ="Database/alembic"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/methods.csv" 
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/filtered.jsonl" 
-refined_queries_cache_path= '/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/refined_queries.json'
+# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl" 
+# refined_queries_cache_path= '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json'
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/methods.csv" 
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/filtered.jsonl" 
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/boto/1:3/refined_queries.json'
+# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/features.csv" 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl" 
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json'
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/methods.csv" 
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/filtered.jsonl" 
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/refined_queries.json' 
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv" 
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl" 
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/refined_queries.json' 
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
-NEED_METHOD_NAME_NORM = True
+NEED_METHOD_NAME_NORM = False
 USE_REFINED_QUERY = True
 
 # Recall parameters
 # RECALL_CLUSTER_K = 5  # Use top 5 clusters for recall
-CLUSTER_KS = [1, 3, 5]
+CLUSTER_KS = [6, 7, 8]
 SIG_KS = [5, 10, 15]
 
 def analyze_project(project_path):
