@@ -18,11 +18,11 @@ from utils.source_code_utils import resolve_signature
 
 
 SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/diagnostic_unixcoder_code.jsonl"
-OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/Internet_boto/0115/unixcoder_rag_completion.jsonl"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json"
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/diagnostic_unixcoder_code.jsonl"
+OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/Database_alembic/0122/unixcoder_rag_completion.jsonl"
 
 # 代码生成使用的大模型
 MODEL_NAME = "deepseek-v3"
@@ -32,7 +32,7 @@ MODEL_BACKEND_CHOICE = "openai"
 RAG_DATA_SOURCE = "unixcoder"
 
 DEBUG = True  # 是否打印调试信息
-GENERATION_FLAG = True  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
+GENERATION_FLAG = False  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
 
 PROMPT_TEMPLATE = (
     "Please complete the function in the given Python code"
