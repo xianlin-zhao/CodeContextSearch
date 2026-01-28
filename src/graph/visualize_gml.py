@@ -9,9 +9,9 @@ import json
 app = Flask(__name__)
 
 # BASE_DIR = '/data/zxl/Search2026/outputData'
-BASE_DIR = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/feature_graph_results'
+BASE_DIR = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob'
 # Hardcoded path to the filtered jsonl file containing ground truth
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl'
+FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl'
 
 def load_ground_truth(task_id):
     """

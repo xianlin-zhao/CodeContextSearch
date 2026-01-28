@@ -3,6 +3,7 @@ import os
 os.environ['HF_ENDPOINT'] = 'https://huggingface.co'
 import json
 import pandas as pd
+from typing import Any, Dict, Optional
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
@@ -12,23 +13,26 @@ from tqdm import tqdm
 from utils.query_refine import refine_query
 
 # PROJECT_PATH = "System/mrjob"
-# PROJECT_PATH = "Internet/boto"
-PROJECT_PATH ="Database/alembic"
+PROJECT_PATH = "Internet/boto"
+# PROJECT_PATH ="Database/alembic"
 
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
 # FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl" 
 # refined_queries_cache_path= '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json'
+# ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl" 
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json'
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl" 
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json'
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv" 
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/refined_queries.json' 
+# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl" 
+# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json' 
+# ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
@@ -39,7 +43,61 @@ USE_REFINED_QUERY = True
 # Recall parameters
 # RECALL_CLUSTER_K = 5  # Use top 5 clusters for recall
 CLUSTER_KS = [6, 7, 8]
-SIG_KS = [5, 10, 15]
+SIG_KS = [5, 10, 15,20]
+
+variables_enre = set()
+
+
+def load_enre_json(json_path: str) -> None:
+    with open(json_path, "r") as f:
+        data = json.load(f)
+
+    variables = data.get("variables", [])
+    for var in variables:
+        if not var.get("category", "").startswith("Un") and var.get("category") == "Variable":
+            qname = var.get("qualifiedName")
+            if qname:
+                variables_enre.add(qname)
+
+
+def _normalize_symbol(s: str) -> str:
+    if "(" in s:
+        return s.split("(", 1)[0]
+    return s
+
+
+def compute_task_recall(
+    dependency: Optional[list[str]],
+    searched_context_code_list: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    dep = dependency or []
+    retrieved_set = {
+        _normalize_symbol(str(x.get("method_signature", "")))
+        for x in searched_context_code_list
+        if isinstance(x, dict)
+    }
+    dep_total = len(dep)
+    hit = 0
+
+    for x in dep:
+        if x in retrieved_set:
+            hit += 1
+            continue
+        if x in variables_enre:
+            var_name = x.split(".")[-1]
+            for context_code in searched_context_code_list:
+                code_detail = context_code.get("method_code") or ""
+                if var_name in code_detail:
+                    hit += 1
+                    break
+
+    recall = (hit / dep_total) if dep_total > 0 else None
+    return {
+        "dependency_total": dep_total,
+        "dependency_hit": hit,
+        "recall": recall,
+    }
+
 
 def analyze_project(project_path):
     # Step 1: Filter by project_path
@@ -72,6 +130,8 @@ def analyze_project(project_path):
         method_names = df['method_name_norm'].unique().tolist()
     print(f"Loaded {len(method_names)} unique method names from features.")
     print(method_names[:10])
+
+    load_enre_json(ENRE_JSON)
 
     print("Encoding clusters...")
     # # model = SentenceTransformer('all-mpnet-base-v2')
@@ -109,6 +169,12 @@ def analyze_project(project_path):
     code_docs = [tokenize_code(c) for c in methods_df['method_code'].tolist()]
     methods_corpus_strings = methods_df['method_signature'].tolist()
     bm25_code = BM25Okapi(code_docs)
+    method_sig_to_code = dict(
+        zip(
+            methods_df["method_signature"].astype(str).tolist(),
+            methods_df["method_code"].astype(str).tolist(),
+        )
+    )
 
     # Build Mapping: Feature Method Name -> Indices in methods_df
     # This is needed to map the "Recalled" methods from Feature Search to the BM25 corpus
@@ -165,7 +231,7 @@ def analyze_project(project_path):
         methods = []
         for cid in ids:
             methods.extend(df[df["id"] == cid]["method_name"].tolist())
-        return list(set(methods)) # Dedup
+        return methods
        
 
     def safe_div(a, b):
@@ -197,8 +263,7 @@ def analyze_project(project_path):
         deps.extend(data['dependency']['intra_file'])
         deps.extend(data['dependency']['cross_file'])
         
-        # Filter deps by the normalized method names (as in original code)
-        deps = [dep for dep in deps if dep in method_names]
+        #deps = [dep for dep in deps if (dep in method_names) or (dep in variables_enre)]
         top_gt += len(deps)
 
         # Feature Search Embedding
@@ -263,21 +328,26 @@ def analyze_project(project_path):
             for sk in SIG_KS:
                 mk = final_methods[:sk]
                 
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
+                searched_context_code_list = [
+                    {"method_signature": m, "method_code": method_sig_to_code.get(m, "")}
+                    for m in mk
+                ]
+                recall_info = compute_task_recall(deps, searched_context_code_list)
+                num_match = int(recall_info["dependency_hit"])
                 num_pred = len(mk)
                 
                 metrics[ck][sk]["pred"] += num_pred
                 metrics[ck][sk]["match"] += num_match
                 
                 # Per-example metrics
-                num_gt_ex = len(deps)
+                num_gt_ex = int(recall_info["dependency_total"])
                 p = safe_div(num_match, num_pred)
-                r = safe_div(num_match, num_gt_ex)
+                r = float(recall_info["recall"]) if recall_info["recall"] is not None else 0
                 f1 = safe_div(2 * p * r, p + r)
                 
                 record["hybrid"][f"recall_top{ck}_clusters"][f"rank_top{sk}"] = {
                     "metrics": {"P": p, "R": r, "F1": f1, "pred": num_pred, "match": num_match, "gt": num_gt_ex},
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
+                    "predictions": [{"method": m, "match": (_normalize_symbol(m) in deps)} for m in mk]
                 }
         
         hybrid_records.append(record)

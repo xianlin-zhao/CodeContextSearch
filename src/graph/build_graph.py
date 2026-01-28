@@ -10,7 +10,9 @@ METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/method
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl" 
 DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/diagnostic_hybrid_feature_BM25Code_6_7_8.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
+# OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/expand_graph_results"
+TOP_KS = [5, 10, 15, 20]
 
 REMOVE_FIRST_DOT_PREFIX = False
 PREFIX = "boto"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
@@ -100,92 +102,81 @@ def build_graph():
             if line.strip():
                 diag_records.append(json.loads(line))
     
-    if not os.path.exists(OUTPUT_GRAPH_PATH):
-        os.makedirs(OUTPUT_GRAPH_PATH)
+    os.makedirs(OUTPUT_GRAPH_PATH, exist_ok=True)
         
     for i, rec in enumerate(diag_records):
         example_id = rec.get('example_id', i)
         task_namespace = tasks_info[i].get("namespace")
         if REMOVE_FIRST_DOT_PREFIX:
             task_namespace = PREFIX + "." + task_namespace
-        
-        # 获取搜索出来的所有method
-        preds = []
-        try:
-            # 目前这里只选取top3的feature对应的结果，作为初始子图
-            # preds = rec["feature"]["top3"]["predictions"]
-            # 选择top7 cluster + BM25 top10的结果
-            preds = rec["hybrid"]["recall_top7_clusters"]["rank_top10"]["predictions"]
-            # 过滤掉preds中method == task_namespace的项，也就是待补全的ground truth的代码
-            filtered_preds = [p for p in preds if (p['method'] if '(' not in p['method'] else p['method'].split('(')[0]) != task_namespace]
-            if len(filtered_preds) != len(preds):
-                print(f"Attention! {len(preds) - len(filtered_preds)} items filtered out for task {example_id} (method == {task_namespace})")
-            preds = filtered_preds
-        except KeyError:
-            print(f"Skipping task {example_id}: structure not matching data['feature']['top3']['predictions']")
-            continue
-            
-        # 只要method签名
-        pred_signatures = [p['method'] for p in preds]
-        
-        # Create a graph for this task
-        G = nx.DiGraph()
-        
-        # Find corresponding ENRE IDs
-        relevant_ids = set()
-        for sig in pred_signatures:
-            # strip parameters from sig to match ENRE.
-            if '(' in sig:
-                clean_sig = sig.split('(')[0]
-            else:
-                clean_sig = sig
-                
-            if clean_sig in qname_to_id:
-                eid = qname_to_id[clean_sig]
-                relevant_ids.add(eid)
-                node_info = valid_nodes[eid]
-                
-                attrs = {
-                    'sig': clean_sig,
-                    'category': node_info['category']
-                }
-                
-                # Find matching method info
-                if sig in method_sig_to_info:
-                    csv_info = method_sig_to_info[sig]
-                    attrs['method_signature'] = str(csv_info.get('method_signature', ''))
-                    attrs['func_file'] = str(csv_info.get('func_file', ''))
-                    attrs['method_code'] = str(csv_info.get('method_code', ''))
+
+        top_ks_raw = TOP_KS if isinstance(TOP_KS, (list, tuple, set)) else [TOP_KS]
+        top_ks = []
+        for k in top_ks_raw:
+            try:
+                k_int = int(k)
+            except Exception:
+                continue
+            if k_int > 0:
+                top_ks.append(k_int)
+        top_ks = list(dict.fromkeys(top_ks))
+        if not top_ks:
+            top_ks = [10]
+
+        for K in top_ks:
+            preds = []
+            try:
+                preds = rec["hybrid"]["recall_top7_clusters"][f"rank_top{K}"]["predictions"]
+                filtered_preds = [p for p in preds if (p['method'] if '(' not in p['method'] else p['method'].split('(')[0]) != task_namespace]
+                if len(filtered_preds) != len(preds):
+                    print(f"Attention! {len(preds) - len(filtered_preds)} items filtered out for task {example_id} (method == {task_namespace})")
+                preds = filtered_preds
+            except KeyError:
+                print(f"Skipping task {example_id} for top-{K}: missing hybrid/recall_top7_clusters/rank_top{K}/predictions")
+                continue
+
+            pred_signatures = [p['method'] for p in preds]
+
+            G = nx.DiGraph()
+
+            relevant_ids = set()
+            for sig in pred_signatures:
+                if '(' in sig:
+                    clean_sig = sig.split('(')[0]
                 else:
-                    print(f"Warning: No method info found for {sig}")
-                    # Fallback: try to find by clean name if exact sig match fails
-                    # This might be ambiguous if overloaded, but Python...
-                    # found = False
-                    # for k, v in method_sig_to_info.items():
-                    #     if k.startswith(clean_sig + '('):
-                    #         attrs['method_signature'] = str(v.get('method_signature', ''))
-                    #         attrs['func_file'] = str(v.get('func_file', ''))
-                    #         attrs['method_code'] = str(v.get('method_code', ''))
-                    #         found = True
-                    #         break
-                    # if not found:
-                    #     # print(f"Warning: No CSV info found for {sig}")
-                    #     pass
+                    clean_sig = sig
 
-                # Add node with extended attributes
-                G.add_node(eid, **attrs)
+                if clean_sig in qname_to_id:
+                    eid = qname_to_id[clean_sig]
+                    relevant_ids.add(eid)
+                    node_info = valid_nodes[eid]
 
-        # Now add edges between these relevant nodes       
-        for u in relevant_ids:
-            if u in adj:
-                for v, kind in adj[u]:
-                    if v in relevant_ids:
-                        G.add_edge(u, v, type=kind)
-        
-        # Save graph
-        out_file = os.path.join(OUTPUT_GRAPH_PATH, f"task_{example_id}_ori.gml")
-        nx.write_gml(G, out_file)
-        print(f"Saved graph for task {example_id} with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
+                    attrs = {
+                        'sig': clean_sig,
+                        'category': node_info['category']
+                    }
+
+                    if sig in method_sig_to_info:
+                        csv_info = method_sig_to_info[sig]
+                        attrs['method_signature'] = str(csv_info.get('method_signature', ''))
+                        attrs['func_file'] = str(csv_info.get('func_file', ''))
+                        attrs['method_code'] = str(csv_info.get('method_code', ''))
+                    else:
+                        print(f"Warning: No method info found for {sig}")
+
+                    G.add_node(eid, **attrs)
+
+            for u in relevant_ids:
+                if u in adj:
+                    for v, kind in adj[u]:
+                        if v in relevant_ids:
+                            G.add_edge(u, v, type=kind)
+
+            top_k_dir = os.path.join(OUTPUT_GRAPH_PATH, f"top-{K}-subgraph")
+            os.makedirs(top_k_dir, exist_ok=True)
+            out_file = os.path.join(top_k_dir, f"task_{example_id}_ori.gml")
+            nx.write_gml(G, out_file)
+            print(f"Saved graph for task {example_id} top-{K} with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
 
 
 if __name__ == "__main__":

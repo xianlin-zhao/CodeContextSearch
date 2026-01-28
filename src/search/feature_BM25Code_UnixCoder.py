@@ -3,6 +3,7 @@ import os
 os.environ['HF_ENDPOINT'] = 'https://huggingface.co'
 import json
 import pandas as pd
+from typing import Any, Dict, Optional
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
@@ -32,6 +33,7 @@ FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/feature
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/methods.csv" 
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/alembic/1:5/filtered.jsonl" 
 refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/alembic/1:3/refined_queries.json' 
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
@@ -50,6 +52,59 @@ SIG_KS = [5, 10, 15]
 # Normalization strategy: Min-Max normalization per query.
 BM25_WEIGHT = 0.5
 UNIXCODER_WEIGHT = 0.5
+
+variables_enre = set()
+
+
+def load_enre_json(json_path: str) -> None:
+    with open(json_path, "r") as f:
+        data = json.load(f)
+
+    variables = data.get("variables", [])
+    for var in variables:
+        if not var.get("category", "").startswith("Un") and var.get("category") == "Variable":
+            qname = var.get("qualifiedName")
+            if qname:
+                variables_enre.add(qname)
+
+
+def _normalize_symbol(s: str) -> str:
+    if "(" in s:
+        return s.split("(", 1)[0]
+    return s
+
+
+def compute_task_recall(
+    dependency: Optional[list[str]],
+    searched_context_code_list: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    dep = dependency or []
+    retrieved_set = {
+        _normalize_symbol(str(x.get("method_signature", "")))
+        for x in searched_context_code_list
+        if isinstance(x, dict)
+    }
+    dep_total = len(dep)
+    hit = 0
+
+    for x in dep:
+        if x in retrieved_set:
+            hit += 1
+            continue
+        if x in variables_enre:
+            var_name = x.split(".")[-1]
+            for context_code in searched_context_code_list:
+                code_detail = context_code.get("method_code") or ""
+                if var_name in code_detail:
+                    hit += 1
+                    break
+
+    recall = (hit / dep_total) if dep_total > 0 else None
+    return {
+        "dependency_total": dep_total,
+        "dependency_hit": hit,
+        "recall": recall,
+    }
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
     """
@@ -123,6 +178,8 @@ def analyze_project(project_path):
         method_names = df['method_name_norm'].unique().tolist()
     print(f"Loaded {len(method_names)} unique method names from features.")
 
+    load_enre_json(ENRE_JSON)
+
     print("Encoding clusters...")
     # # model = SentenceTransformer('all-mpnet-base-v2')
     # model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -145,6 +202,7 @@ def analyze_project(project_path):
 
     methods_corpus_strings = methods_df['method_signature'].tolist()
     method_codes = methods_df['method_code'].tolist()
+    method_sig_to_code = dict(zip(methods_corpus_strings, method_codes))
 
     # Build BM25 on Code
     print("Building BM25 index on code...")
@@ -193,7 +251,7 @@ def analyze_project(project_path):
         methods = []
         for cid in ids:
             methods.extend(df[df["id"] == cid]["method_name"].tolist())
-        return list(set(methods)) # Dedup
+        return methods
        
     def safe_div(a, b):
         return (a / b) if b != 0 else 0
@@ -233,7 +291,7 @@ def analyze_project(project_path):
         deps.extend(data['dependency']['cross_file'])
         
         # Filter deps by the normalized method names
-        deps = [dep for dep in deps if dep in method_names]
+        #deps = [dep for dep in deps if (dep in method_names) or (dep in variables_enre)]
         top_gt += len(deps)
 
         # Feature Search Embedding
@@ -279,12 +337,10 @@ def analyze_project(project_path):
             recalled_raw_names = methods_from_top_k_clusters(similarities, ck)
             
             # Map to indices
-            candidate_indices = set()
+            candidate_indices = []
             for rname in recalled_raw_names:
                 if rname in feature_name_to_indices:
-                    candidate_indices.update(feature_name_to_indices[rname])
-            
-            candidate_indices = list(candidate_indices)
+                    candidate_indices.extend(feature_name_to_indices[rname])
             
             # 2. Re-ranking (Combined BM25 + UniXcoder)
             final_methods = []
@@ -320,21 +376,26 @@ def analyze_project(project_path):
             for sk in SIG_KS:
                 mk = final_methods[:sk]
                 
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
+                searched_context_code_list = [
+                    {"method_signature": m, "method_code": method_sig_to_code.get(m, "")}
+                    for m in mk
+                ]
+                recall_info = compute_task_recall(deps, searched_context_code_list)
+                num_match = int(recall_info["dependency_hit"])
                 num_pred = len(mk)
                 
                 metrics[ck][sk]["pred"] += num_pred
                 metrics[ck][sk]["match"] += num_match
                 
                 # Per-example metrics
-                num_gt_ex = len(deps)
+                num_gt_ex = int(recall_info["dependency_total"])
                 p = safe_div(num_match, num_pred)
-                r = safe_div(num_match, num_gt_ex)
+                r = float(recall_info["recall"]) if recall_info["recall"] is not None else 0
                 f1 = safe_div(2 * p * r, p + r)
                 
                 record["hybrid"][f"recall_top{ck}_clusters"][f"rank_top{sk}"] = {
                     "metrics": {"P": p, "R": r, "F1": f1, "pred": num_pred, "match": num_match, "gt": num_gt_ex},
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
+                    "predictions": [{"method": m, "match": (_normalize_symbol(m) in deps)} for m in mk]
                 }
         
         hybrid_records.append(record)

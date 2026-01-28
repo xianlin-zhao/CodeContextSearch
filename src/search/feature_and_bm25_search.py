@@ -3,6 +3,7 @@ import os
 os.environ['HF_ENDPOINT'] = 'https://huggingface.co'
 import json
 import pandas as pd
+from typing import Any, Dict, Optional
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
@@ -25,12 +26,14 @@ PROJECT_PATH ="Database/alembic"
 # METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods_with_desc.csv"
 # FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
 # refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
+# ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 
 FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/features.csv" 
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv" 
 METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods_with_desc.csv"
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl" 
 refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/refined_queries.json' 
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
@@ -38,6 +41,59 @@ DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False
 USE_REFINED_QUERY = False
+
+variables_enre = set()
+
+
+def load_enre_json(json_path: str) -> None:
+    with open(json_path, "r") as f:
+        data = json.load(f)
+
+    variables = data.get("variables", [])
+    for var in variables:
+        if not var.get("category", "").startswith("Un") and var.get("category") == "Variable":
+            qname = var.get("qualifiedName")
+            if qname:
+                variables_enre.add(qname)
+
+
+def _normalize_symbol(s: str) -> str:
+    if "(" in s:
+        return s.split("(", 1)[0]
+    return s
+
+
+def compute_task_recall(
+    dependency: Optional[list[str]],
+    searched_context_code_list: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    dep = dependency or []
+    retrieved_set = {
+        _normalize_symbol(str(x.get("method_signature", "")))
+        for x in searched_context_code_list
+        if isinstance(x, dict)
+    }
+    dep_total = len(dep)
+    hit = 0
+
+    for x in dep:
+        if x in retrieved_set:
+            hit += 1
+            continue
+        if x in variables_enre:
+            var_name = x.split(".")[-1]
+            for context_code in searched_context_code_list:
+                code_detail = context_code.get("method_code") or ""
+                if var_name in code_detail:
+                    hit += 1
+                    break
+
+    recall = (hit / dep_total) if dep_total > 0 else None
+    return {
+        "dependency_total": dep_total,
+        "dependency_hit": hit,
+        "recall": recall,
+    }
 
 def analyze_project(project_path):
     # Create output directory
@@ -129,6 +185,50 @@ def analyze_project(project_path):
     bm25_code = BM25Okapi(code_docs)
     bm25_desc = BM25Okapi(desc_docs)
 
+    load_enre_json(ENRE_JSON)
+
+    method_sig_to_code = dict(
+        zip(
+            methods_df["method_signature"].astype(str).tolist(),
+            methods_df["method_code"].astype(str).tolist(),
+        )
+    )
+    normalized_sig_to_signature = {}
+    for sig in method_sig_to_code.keys():
+        norm = _normalize_symbol(sig)
+        if norm not in normalized_sig_to_signature:
+            normalized_sig_to_signature[norm] = sig
+
+    def resolve_method_signature(method_str: str) -> str:
+        if method_str in method_sig_to_code:
+            return method_str
+        norm = _normalize_symbol(method_str)
+        if norm in normalized_sig_to_signature:
+            return normalized_sig_to_signature[norm]
+        return method_str
+
+    def build_context_code_list(method_strs: list[str]) -> list[Dict[str, Any]]:
+        ctx = []
+        for m in method_strs:
+            sig = resolve_method_signature(m)
+            ctx.append(
+                {
+                    "method_signature": sig,
+                    "method_code": method_sig_to_code.get(sig, ""),
+                }
+            )
+        return ctx
+
+    def is_method_hit(method_signature: str, method_code: str, deps_list: list[str]) -> bool:
+        if _normalize_symbol(method_signature) in deps_list:
+            return True
+        for x in deps_list:
+            if x in variables_enre:
+                var_name = x.split(".")[-1]
+                if var_name and var_name in (method_code or ""):
+                    return True
+        return False
+
     # Load or initialize the query cache
     if os.path.exists(refined_queries_cache_path):
         with open(refined_queries_cache_path, 'r') as f:
@@ -176,8 +276,8 @@ def analyze_project(project_path):
             deps.extend(data['dependency']['intra_file'])
             deps.extend(data['dependency']['cross_file'])
             # print("deps",deps)
-            #清洗/过滤
-            deps = [dep for dep in deps if dep in method_names]
+            # #清洗/过滤
+            # deps = [dep for dep in deps if (dep in method_names) or (dep in variables_enre)]
             # print("deps after filter",deps)
             # input("please confirm the deps!")
             #将本条测试数据的正确答案数量累加到总数中
@@ -209,7 +309,7 @@ def analyze_project(project_path):
             for k in cluster_ks:
                 methods_k = methods_from_top_k_clusters(similarities, k)
                 cluster_metrics[k]["pred"] += len(methods_k)
-                cluster_metrics[k]["match"] += sum(1 for dep in deps if any(dep in m for m in methods_k))
+                cluster_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(methods_k))["dependency_hit"]
 
             # signature-based search using BM25
             q_tokens = re.findall(r'\w+', query.lower())
@@ -218,7 +318,7 @@ def analyze_project(project_path):
             for k in sig_ks:
                 m = bm25_topk_strings(sig_order, k, methods_corpus_strings)
                 sig_metrics[k]["pred"] += len(m)
-                sig_metrics[k]["match"] += sum(1 for dep in deps if any(dep in s for s in m))
+                sig_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(m))["dependency_hit"]
 
             # code-based search using BM25
             code_scores = bm25_code.get_scores(q_tokens)
@@ -226,7 +326,7 @@ def analyze_project(project_path):
             for k in sig_ks:
                 m = bm25_topk_strings(code_order, k, methods_corpus_strings)
                 code_metrics[k]["pred"] += len(m)
-                code_metrics[k]["match"] += sum(1 for dep in deps if any(dep in s for s in m))
+                code_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(m))["dependency_hit"]
 
             # desc-based search using BM25
             desc_scores = bm25_desc.get_scores(q_tokens)
@@ -234,7 +334,7 @@ def analyze_project(project_path):
             for k in sig_ks:
                 m = bm25_topk_strings(desc_order, k, methods_desc_corpus_strings)
                 desc_metrics[k]["pred"] += len(m)
-                desc_metrics[k]["match"] += sum(1 for dep in deps if any(dep in s for s in m))
+                desc_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(m))["dependency_hit"]
 
             feature_record = {
                 "example_id": example_counter,
@@ -245,10 +345,11 @@ def analyze_project(project_path):
             for k in cluster_ks:
                 mk = methods_from_top_k_clusters(similarities, k)
                 num_pred = len(mk)
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
-                num_gt = len(deps)
+                recall_info = compute_task_recall(deps, build_context_code_list(mk))
+                num_match = int(recall_info["dependency_hit"])
+                num_gt = int(recall_info["dependency_total"])
                 precision = (num_match / num_pred) if num_pred > 0 else 0
-                recall = (num_match / num_gt) if num_gt > 0 else 0
+                recall = float(recall_info["recall"]) if recall_info["recall"] is not None else 0
                 f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
                 feature_record["feature"][f"top{k}"] = {
                     "metrics": {
@@ -259,7 +360,17 @@ def analyze_project(project_path):
                         "match": num_match,
                         "gt": num_gt
                     },
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
+                    "predictions": [
+                        {
+                            "method": m,
+                            "match": is_method_hit(
+                                resolve_method_signature(m),
+                                method_sig_to_code.get(resolve_method_signature(m), ""),
+                                deps,
+                            ),
+                        }
+                        for m in mk
+                    ]
                 }
             feature_records.append(feature_record)
 
@@ -272,10 +383,11 @@ def analyze_project(project_path):
             for k in sig_ks:
                 mk = bm25_topk_strings(sig_order, k,methods_corpus_strings)
                 num_pred = len(mk)
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
-                num_gt = len(deps)
+                recall_info = compute_task_recall(deps, build_context_code_list(mk))
+                num_match = int(recall_info["dependency_hit"])
+                num_gt = int(recall_info["dependency_total"])
                 precision = (num_match / num_pred) if num_pred > 0 else 0
-                recall = (num_match / num_gt) if num_gt > 0 else 0
+                recall = float(recall_info["recall"]) if recall_info["recall"] is not None else 0
                 f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
                 sig_record["bm25_signature"][f"top{k}"] = {
                     "metrics": {
@@ -286,7 +398,13 @@ def analyze_project(project_path):
                         "match": num_match,
                         "gt": num_gt
                     },
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
+                    "predictions": [
+                        {
+                            "method": m,
+                            "match": is_method_hit(m, method_sig_to_code.get(m, ""), deps),
+                        }
+                        for m in mk
+                    ]
                 }
             sig_records.append(sig_record)
 
@@ -299,10 +417,11 @@ def analyze_project(project_path):
             for k in sig_ks:
                 mk = bm25_topk_strings(code_order, k, methods_corpus_strings)
                 num_pred = len(mk)
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
-                num_gt = len(deps)
+                recall_info = compute_task_recall(deps, build_context_code_list(mk))
+                num_match = int(recall_info["dependency_hit"])
+                num_gt = int(recall_info["dependency_total"])
                 precision = (num_match / num_pred) if num_pred > 0 else 0
-                recall = (num_match / num_gt) if num_gt > 0 else 0
+                recall = float(recall_info["recall"]) if recall_info["recall"] is not None else 0
                 f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
                 code_record["bm25_code"][f"top{k}"] = {
                     "metrics": {
@@ -313,7 +432,13 @@ def analyze_project(project_path):
                         "match": num_match,
                         "gt": num_gt
                     },
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
+                    "predictions": [
+                        {
+                            "method": m,
+                            "match": is_method_hit(m, method_sig_to_code.get(m, ""), deps),
+                        }
+                        for m in mk
+                    ]
                 }
             code_records.append(code_record)
 
@@ -326,10 +451,11 @@ def analyze_project(project_path):
             for k in sig_ks:
                 mk = bm25_topk_strings(desc_order, k, methods_desc_corpus_strings)
                 num_pred = len(mk)
-                num_match = sum(1 for dep in deps if any(dep in m for m in mk))
-                num_gt = len(deps)
+                recall_info = compute_task_recall(deps, build_context_code_list(mk))
+                num_match = int(recall_info["dependency_hit"])
+                num_gt = int(recall_info["dependency_total"])
                 precision = (num_match / num_pred) if num_pred > 0 else 0
-                recall = (num_match / num_gt) if num_gt > 0 else 0
+                recall = float(recall_info["recall"]) if recall_info["recall"] is not None else 0
                 f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
                 desc_record["bm25_desc"][f"top{k}"] = {
                     "metrics": {
@@ -340,7 +466,17 @@ def analyze_project(project_path):
                         "match": num_match,
                         "gt": num_gt
                     },
-                    "predictions": [{"method": m, "match": any(dep in m for dep in deps)} for m in mk]
+                    "predictions": [
+                        {
+                            "method": m,
+                            "match": is_method_hit(
+                                resolve_method_signature(m),
+                                method_sig_to_code.get(resolve_method_signature(m), ""),
+                                deps,
+                            ),
+                        }
+                        for m in mk
+                    ]
                 }
             desc_records.append(desc_record)
 

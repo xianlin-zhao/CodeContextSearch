@@ -10,10 +10,10 @@ from collections import defaultdict
 # FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/1:3/filtered.jsonl"
 # OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/0108/graph_results"
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/feature_graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/expand_graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = False
 PREFIX = "mrjob"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
