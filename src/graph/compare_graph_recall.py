@@ -7,10 +7,12 @@ import pandas as pd
 from collections import defaultdict
 
 # Configuration
-GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/expand_graph_results'
+GRAPH_RESULTS_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/Database_alembic/0128/top-15-subgraph'
 FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/expand_graph_match_comparison_report.csv'
+OUTPUT_REPORT_FILE = '/data/zxl/Search2026/outputData/devEvalSearchOut/Database_alembic/0128/expand_graph_match_comparison_report.csv'
 ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json'
+
+DEBUG = True
 
 variables_enre = set()
 
@@ -48,7 +50,9 @@ def compute_task_recall(dependency, searched_context_code_list):
         if isinstance(x, dict)
     }
     dep_total = len(dep_set)
-    hit = len(dep_set & retrieved_set) if dep_total > 0 else 0
+
+    hit_set = dep_set & retrieved_set
+    hit = len(hit_set) if dep_total > 0 else 0
 
     for x in dep:
         if x in variables_enre:
@@ -56,8 +60,13 @@ def compute_task_recall(dependency, searched_context_code_list):
             for context_code in searched_context_code_list:
                 code_detail = context_code.get("method_code") or ""
                 if var_name in code_detail:
+                    hit_set.add(x)
                     hit += 1
                     break
+    
+    if DEBUG:
+        print(f"retrieved_set: {retrieved_set}")
+        print(f"hit_set: {hit_set}")
 
     recall = (hit / dep_total) if dep_total > 0 else None
     return {
@@ -161,6 +170,7 @@ def main():
         
         # Load GT
         dep = load_ground_truth(task_id)
+        print(f"task_id: {task_id}, dep: {dep}")
         gt_total = len(set(dep))
 
         ori_ctx = load_context_code_list_from_gml(types.get('ori'))
