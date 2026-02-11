@@ -6,27 +6,30 @@ import os
 from collections import defaultdict
 
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/diagnostic_hybrid_feature_BM25Code_6_7_8.jsonl"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/filtered.jsonl" 
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/diagnostic_feature.jsonl"
 # OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/expand_graph_results"
-TOP_KS = [5, 10, 15, 20]
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = False
-PREFIX = "boto"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
+PREFIX = "alembic"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
+#用来控制我们选几个相似的method（用来后面的类调用链预测加分的）
+SIMILAR_TOPK = 3
 
 
 # 读入之前处理的所有method信息
 print("Loading METHODS_CSV...")
 df_methods = pd.read_csv(METHODS_CSV)
 method_sig_to_info = {}
+method_clean_sig_to_info = {}
 for index, row in df_methods.iterrows():
     # Ensure we handle potential NaN values or convert to string if needed
     sig = str(row['method_signature'])
     method_sig_to_info[sig] = row.to_dict()
-
+    clean_sig = sig.split("(", 1)[0] if "(" in sig else sig
+    method_clean_sig_to_info[clean_sig] = row.to_dict()
 print(f"Loaded {len(method_sig_to_info)} methods from CSV.")
 
 
@@ -82,8 +85,6 @@ for src, dest, kind in edges:
     adj[src].append((dest, kind))
 
 
-
-
 def build_graph():
     print("Step 1: Loading FILTERED_PATH for task info...")
     tasks_info = []
@@ -106,77 +107,120 @@ def build_graph():
         
     for i, rec in enumerate(diag_records):
         example_id = rec.get('example_id', i)
-        task_namespace = tasks_info[i].get("namespace")
+        target_method = tasks_info[i].get("namespace") or ""
         if REMOVE_FIRST_DOT_PREFIX:
-            task_namespace = PREFIX + "." + task_namespace
+            target_method = PREFIX + "." + target_method
+        target_feature_other_methods = rec.get("target_feature_other_methods") or []
+        target_feature_other_methods_set = {
+            (x.split("(", 1)[0] if "(" in str(x) else str(x))
+            for x in target_feature_other_methods
+            if x
+        }
 
-        top_ks_raw = TOP_KS if isinstance(TOP_KS, (list, tuple, set)) else [TOP_KS]
-        top_ks = []
-        for k in top_ks_raw:
-            try:
-                k_int = int(k)
-            except Exception:
-                continue
-            if k_int > 0:
-                top_ks.append(k_int)
-        top_ks = list(dict.fromkeys(top_ks))
-        if not top_ks:
-            top_ks = [10]
+        similar_methods = rec.get("similar_methods")
+        if not isinstance(similar_methods, dict):
+            similar_methods = {}
+        similar_method_names = similar_methods.get(f"top{SIMILAR_TOPK}") or []
+        similar_method_names_set = {
+            (x.split("(", 1)[0] if "(" in str(x) else str(x))
+            for x in similar_method_names
+            if x
+        }
 
-        for K in top_ks:
-            preds = []
-            try:
-                preds = rec["hybrid"]["recall_top7_clusters"][f"rank_top{K}"]["predictions"]
-                filtered_preds = [p for p in preds if (p['method'] if '(' not in p['method'] else p['method'].split('(')[0]) != task_namespace]
-                if len(filtered_preds) != len(preds):
-                    print(f"Attention! {len(preds) - len(filtered_preds)} items filtered out for task {example_id} (method == {task_namespace})")
-                preds = filtered_preds
-            except KeyError:
-                print(f"Skipping task {example_id} for top-{K}: missing hybrid/recall_top7_clusters/rank_top{K}/predictions")
-                continue
+        target_file = ""
+        if target_method in method_clean_sig_to_info:
+            target_file = str(method_clean_sig_to_info[target_method].get("func_file", ""))
+        print(f"[task] example_id={example_id} target_method={target_method} target_file={target_file}", flush=True)
 
-            pred_signatures = [p['method'] for p in preds]
+        preds = []
+        try:
+            preds = rec["feature"]["top3"]["predictions"]
+            filtered_preds = [
+                p
+                for p in preds
+                if (p["method"] if "(" not in p["method"] else p["method"].split("(", 1)[0])
+                != target_method
+            ]
+            if len(filtered_preds) != len(preds):
+                print(
+                    f"Attention! {len(preds) - len(filtered_preds)} items filtered out for task {example_id} (method == {target_method})",
+                    flush=True,
+                )
+            preds = filtered_preds
+        except KeyError:
+            print(f"Skipping task {example_id}: missing feature/top3/predictions", flush=True)
+            continue
 
-            G = nx.DiGraph()
+        pred_signatures = [p["method"] for p in preds]
 
-            relevant_ids = set()
-            for sig in pred_signatures:
-                if '(' in sig:
-                    clean_sig = sig.split('(')[0]
+        G = nx.DiGraph()
+        G.graph["target_method"] = target_method
+        G.graph["target_file"] = target_file
+
+        relevant_ids = set()
+        for sig in pred_signatures:
+            clean_sig = sig.split("(", 1)[0] if "(" in sig else sig
+
+            if clean_sig in qname_to_id:
+                eid = qname_to_id[clean_sig]
+                relevant_ids.add(eid)
+                node_info = valid_nodes[eid]
+
+                attrs = {
+                    'sig': clean_sig,
+                    'category': node_info['category'],
+                    'is_SameFile': False,
+                    'is_SameFeature': False,
+                    'is_SimilarMethod': False,
+                }
+
+                if sig in method_sig_to_info:
+                    csv_info = method_sig_to_info[sig]
+                    attrs['method_signature'] = str(csv_info.get('method_signature', ''))
+                    attrs['func_file'] = str(csv_info.get('func_file', ''))
+                    attrs['method_code'] = str(csv_info.get('method_code', ''))
+                elif clean_sig in method_sig_to_info:
+                    csv_info = method_sig_to_info[clean_sig]
+                    attrs['method_signature'] = str(csv_info.get('method_signature', ''))
+                    attrs['func_file'] = str(csv_info.get('func_file', ''))
+                    attrs['method_code'] = str(csv_info.get('method_code', ''))
                 else:
-                    clean_sig = sig
+                    print(f"Warning: No method info found for {sig}", flush=True)
 
-                if clean_sig in qname_to_id:
-                    eid = qname_to_id[clean_sig]
-                    relevant_ids.add(eid)
-                    node_info = valid_nodes[eid]
+                G.add_node(eid, **attrs)
 
-                    attrs = {
-                        'sig': clean_sig,
-                        'category': node_info['category']
-                    }
+        for u in relevant_ids:
+            if u in adj:
+                for v, kind in adj[u]:
+                    if v in relevant_ids:
+                        G.add_edge(u, v, type=kind)
 
-                    if sig in method_sig_to_info:
-                        csv_info = method_sig_to_info[sig]
-                        attrs['method_signature'] = str(csv_info.get('method_signature', ''))
-                        attrs['func_file'] = str(csv_info.get('func_file', ''))
-                        attrs['method_code'] = str(csv_info.get('method_code', ''))
-                    else:
-                        print(f"Warning: No method info found for {sig}")
+        same_file_count = 0
+        same_feature_count = 0
+        similar_method_count = 0
+        if target_file:
+            for _, attrs in G.nodes(data=True):
+                if str(attrs.get("func_file", "")) == target_file:
+                    attrs["is_SameFile"] = True
+                    same_file_count += 1
+        if target_feature_other_methods_set:
+            for _, attrs in G.nodes(data=True):
+                if str(attrs.get("sig", "")) in target_feature_other_methods_set:
+                    attrs["is_SameFeature"] = True
+                    same_feature_count += 1
+        if similar_method_names_set:
+            for _, attrs in G.nodes(data=True):
+                if str(attrs.get("sig", "")) in similar_method_names_set:
+                    attrs["is_SimilarMethod"] = True
+                    similar_method_count += 1
+        print(
+            f"[task] example_id={example_id} same_file={same_file_count} same_feature={same_feature_count} similar_method={similar_method_count}",
+            flush=True,
+        )
 
-                    G.add_node(eid, **attrs)
-
-            for u in relevant_ids:
-                if u in adj:
-                    for v, kind in adj[u]:
-                        if v in relevant_ids:
-                            G.add_edge(u, v, type=kind)
-
-            top_k_dir = os.path.join(OUTPUT_GRAPH_PATH, f"top-{K}-subgraph")
-            os.makedirs(top_k_dir, exist_ok=True)
-            out_file = os.path.join(top_k_dir, f"task_{example_id}_ori.gml")
-            nx.write_gml(G, out_file)
-            print(f"Saved graph for task {example_id} top-{K} with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
+        out_file = os.path.join(OUTPUT_GRAPH_PATH, f"task_{example_id}_ori.gml")
+        nx.write_gml(G, out_file)
+        print(f"Saved graph for task {example_id} with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
 
 
 if __name__ == "__main__":
