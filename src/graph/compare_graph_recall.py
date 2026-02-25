@@ -7,10 +7,10 @@ import pandas as pd
 from collections import defaultdict
 
 # Configuration
-GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/expand_graph_results/top-20-subgraph'
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/duoduoduo_expand_graph_match_comparison_report.csv'
-ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json'
+GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results'
+FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl'
+OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/duoduoduo_expand_graph_match_comparison_report.csv'
+ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json'
 
 variables_enre = set()
 
@@ -140,8 +140,7 @@ def list_rank_subdirs(base_dir):
         full = os.path.join(base_dir, name)
         if not os.path.isdir(full):
             continue
-        if name.startswith("PageRank-") and name.endswith("-subgraph"):
-            rank_dirs.append(name)
+        rank_dirs.append(name)
     return sorted(rank_dirs)
 
 def sanitize_col(s):
@@ -185,11 +184,16 @@ def main():
         f"{'GT Total':<10}",
         f"{'Ori Hit':<10}",
         f"{'Mid Hit':<10}",
-        f"{'Ori Recall':<10}",
-        f"{'Mid Recall':<10}",
     ]
     for name in rank_subdirs:
         header_parts.append(f"{name + ' Hit':<18}")
+    header_parts.extend(
+        [
+            f"{'Ori Recall':<10}",
+            f"{'Mid Recall':<10}",
+        ]
+    )
+    for name in rank_subdirs:
         header_parts.append(f"{name + ' Recall':<18}")
 
     print(" | ".join(header_parts))
@@ -222,8 +226,6 @@ def main():
             f"{gt_total:<10}",
             f"{ori_hit:<10}",
             f"{mid_hit:<10}",
-            f"{fmt_recall(ori_recall):<10}",
-            f"{fmt_recall(mid_recall):<10}",
         ]
         rank_stats_by_dir = {}
         for name in rank_subdirs:
@@ -234,6 +236,14 @@ def main():
             rank_hit = rank_stats.get("dependency_hit", 0)
             rank_recall = rank_stats.get("recall")
             row_parts.append(f"{rank_hit:<18}")
+        row_parts.extend(
+            [
+                f"{fmt_recall(ori_recall):<10}",
+                f"{fmt_recall(mid_recall):<10}",
+            ]
+        )
+        for name in rank_subdirs:
+            rank_recall = rank_stats_by_dir.get(name, {}).get("recall")
             row_parts.append(f"{fmt_recall(rank_recall):<18}")
 
         print(" | ".join(row_parts))
@@ -255,6 +265,23 @@ def main():
 
     # 3. Save to CSV
     df = pd.DataFrame(results)
+    ordered_cols = [
+        "task_id",
+        "dependency_total",
+        "ori_hit",
+        "mid_hit",
+    ]
+    ordered_cols.extend([f"rank_hit__{sanitize_col(name)}" for name in rank_subdirs])
+    ordered_cols.extend(
+        [
+            "ori_recall",
+            "mid_recall",
+        ]
+    )
+    ordered_cols.extend([f"rank_recall__{sanitize_col(name)}" for name in rank_subdirs])
+    existing_cols = [c for c in ordered_cols if c in df.columns]
+    remaining_cols = [c for c in df.columns if c not in existing_cols]
+    df = df[existing_cols + remaining_cols]
     df.to_csv(OUTPUT_REPORT_FILE, index=False)
     print(f"\nReport saved to: {OUTPUT_REPORT_FILE}")
 

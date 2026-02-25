@@ -13,7 +13,9 @@ from utils.query_refine import refine_query
 
 # PROJECT_PATH = "System/mrjob"
 # PROJECT_PATH = "Internet/boto"
-PROJECT_PATH ="Database/alembic"
+# PROJECT_PATH ="Database/alembic"
+# PROJECT_PATH = "Multimedia/Mopidy"
+PROJECT_PATH = "Security/diffprivlib"
 
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
@@ -28,12 +30,12 @@ PROJECT_PATH ="Database/alembic"
 # refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
 # ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv" 
-METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods_with_desc.csv"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/alembic/refined_queries.json' 
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv" 
+METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods_with_desc.csv"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl" 
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/refined_queries.json' 
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 

@@ -20,14 +20,18 @@ from search.search_models.unixcoder import UniXcoder
 # OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database" #alembic
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database" #alembic
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #modipy
 TOP_KS = [15]
+
+ENABLE_EXTRA_EXPANDED_NODE_BONUS = False    
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
     if device is None:
@@ -449,34 +453,35 @@ def process_graph_dir(graph_dir, tasks, model, device, method_map, valid_nodes, 
 
         boosted_nodes = 0
         boosted_total_delta = 0.0
-        for n in original_node_ids:
-            attrs = expanded_G.nodes.get(n, {})
-            inc = 0.0
-            if is_truthy(attrs.get("is_SameFeature")):
-                inc += 0.1
-            if is_truthy(attrs.get("is_SameFile")):
-                inc += 0.1
-            if is_truthy(attrs.get("is_SimilarMethod")):
-                inc += 0.1
-            if inc <= 0:
-                continue
-
-            neighbors = set()
-            try:
-                neighbors.update(expanded_G.successors(n))
-            except Exception:
-                pass
-            try:
-                neighbors.update(expanded_G.predecessors(n))
-            except Exception:
-                pass
-
-            for nb in neighbors:
-                if nb in original_node_ids:
+        if ENABLE_EXTRA_EXPANDED_NODE_BONUS:
+            for n in original_node_ids:
+                attrs = expanded_G.nodes.get(n, {})
+                inc = 0.0
+                if is_truthy(attrs.get("is_SameFeature")):
+                    inc += 0.1
+                if is_truthy(attrs.get("is_SameFile")):
+                    inc += 0.1
+                if is_truthy(attrs.get("is_SimilarMethod")):
+                    inc += 0.1
+                if inc <= 0:
                     continue
-                personalization[nb] = float(personalization.get(nb, 0.0)) + inc
-                boosted_nodes += 1
-                boosted_total_delta += inc
+
+                neighbors = set()
+                try:
+                    neighbors.update(expanded_G.successors(n))
+                except Exception:
+                    pass
+                try:
+                    neighbors.update(expanded_G.predecessors(n))
+                except Exception:
+                    pass
+
+                for nb in neighbors:
+                    if nb in original_node_ids:
+                        continue
+                    personalization[nb] = float(personalization.get(nb, 0.0)) + inc
+                    boosted_nodes += 1
+                    boosted_total_delta += inc
 
         if boosted_nodes > 0:
             print(

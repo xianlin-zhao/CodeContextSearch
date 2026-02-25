@@ -6,15 +6,15 @@ import os
 from collections import defaultdict
 
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/diagnostic_feature.jsonl"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl" 
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diagnostic_feature.jsonl"
 # OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/graph_results"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = False
-PREFIX = "alembic"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
+PREFIX = "diffprivlib"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
 #用来控制我们选几个相似的method（用来后面的类调用链预测加分的）
 SIMILAR_TOPK = 3
 
@@ -84,6 +84,25 @@ adj = defaultdict(list)
 for src, dest, kind in edges:
     adj[src].append((dest, kind))
 
+def _maybe_insert_init_in_target_method(target_method):
+    if not target_method:
+        return target_method
+    base = target_method.split("(", 1)[0] if "(" in target_method else target_method
+    if ".__init__." in base:
+        return base
+    parts = [p for p in base.split(".") if p]
+    if len(parts) < 2:
+        return base
+    insert_at = None
+    for i, part in enumerate(parts):
+        if any(c.isupper() for c in part):
+            insert_at = i
+            break
+    if insert_at is None:
+        insert_at = len(parts) - 1
+    insert_at = max(1, insert_at)
+    parts.insert(insert_at, "__init__")
+    return ".".join(parts)
 
 def build_graph():
     print("Step 1: Loading FILTERED_PATH for task info...")
@@ -104,6 +123,11 @@ def build_graph():
                 diag_records.append(json.loads(line))
     
     os.makedirs(OUTPUT_GRAPH_PATH, exist_ok=True)
+
+    total_tasks = len(diag_records)
+    tasks_same_file_nonzero = 0
+    tasks_same_feature_nonzero = 0
+    tasks_similar_method_nonzero = 0
         
     for i, rec in enumerate(diag_records):
         example_id = rec.get('example_id', i)
@@ -130,6 +154,10 @@ def build_graph():
         target_file = ""
         if target_method in method_clean_sig_to_info:
             target_file = str(method_clean_sig_to_info[target_method].get("func_file", ""))
+        if not target_file:
+            target_method_with_init = _maybe_insert_init_in_target_method(target_method)
+            if target_method_with_init != target_method and target_method_with_init in method_clean_sig_to_info:
+                target_file = str(method_clean_sig_to_info[target_method_with_init].get("func_file", ""))
         print(f"[task] example_id={example_id} target_method={target_method} target_file={target_file}", flush=True)
 
         preds = []
@@ -217,11 +245,21 @@ def build_graph():
             f"[task] example_id={example_id} same_file={same_file_count} same_feature={same_feature_count} similar_method={similar_method_count}",
             flush=True,
         )
+        if same_file_count != 0:
+            tasks_same_file_nonzero += 1
+        if same_feature_count != 0:
+            tasks_same_feature_nonzero += 1
+        if similar_method_count != 0:
+            tasks_similar_method_nonzero += 1
 
         out_file = os.path.join(OUTPUT_GRAPH_PATH, f"task_{example_id}_ori.gml")
         nx.write_gml(G, out_file)
         print(f"Saved graph for task {example_id} with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
 
+    print(
+        f"[summary] total_tasks={total_tasks} same_file_nonzero_tasks={tasks_same_file_nonzero} same_feature_nonzero_tasks={tasks_same_feature_nonzero} similar_method_nonzero_tasks={tasks_similar_method_nonzero}",
+        flush=True,
+    )
 
 if __name__ == "__main__":
     build_graph()
