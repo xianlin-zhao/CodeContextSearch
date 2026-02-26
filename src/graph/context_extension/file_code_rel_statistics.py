@@ -7,9 +7,9 @@ from functools import lru_cache
 from typing import Any, DefaultDict, Dict, Iterable, List, Optional, Tuple
 
 
-PROJECT_DIR = "/data/lowcode_public/DevEval/Source_Code/Internet/boto"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
+PROJECT_DIR = "/data/lowcode_public/DevEval/Source_Code/System/mrjob"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl"
 
 
 @dataclass

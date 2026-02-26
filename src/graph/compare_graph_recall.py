@@ -2,17 +2,19 @@ import os
 import glob
 import re
 import json
+import sys
 import networkx as nx
 import pandas as pd
 from collections import defaultdict
 
 # Configuration
-GRAPH_RESULTS_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0128/top-15-subgraph'
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0128/expand_graph_match_comparison_report.csv'
-ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json'
+GRAPH_RESULTS_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0128/top-15-subgraph'
+FILTERED_JSONL_PATH = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0128/filtered.jsonl'
+OUTPUT_REPORT_FILE = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0128/expand_graph_match_comparison_report.csv'
+ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json'
 
 DEBUG = True
+DEBUG_LOG_FILE = os.path.join(os.path.dirname(OUTPUT_REPORT_FILE), "compare_graph_recall.debug.log")
 
 variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个变量，就认为成功
 unresolved_attribute_enre = set()  # enre中的此类型通常表示一个类里的self.xxx属性，只要搜到的代码出现了self.xxx，就认为成功
@@ -196,7 +198,20 @@ def get_matched_count(gml_path, gt_sigs):
     stats = compute_task_recall(list(gt_sigs), context_code_list)
     return stats.get("dependency_hit", 0)
 
+def _redirect_stdout_stderr_to_file(log_file: str):
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    return open(log_file, "w", encoding="utf-8", buffering=1)
+
 def main():
+    stdout0, stderr0 = sys.stdout, sys.stderr
+    log_fp = None
+    if DEBUG:
+        log_fp = _redirect_stdout_stderr_to_file(DEBUG_LOG_FILE)
+        sys.stdout = log_fp
+        sys.stderr = log_fp
+
     load_enre_elements(ENRE_JSON)
 
     # 1. Group files by task_id
@@ -351,6 +366,12 @@ def main():
         print(f"Average Mid Matches:  {avg_mid:.2f}")
         print(f"Average Rank Matches: {avg_rank:.2f}")
         print("="*60)
+
+    if log_fp is not None:
+        log_fp.flush()
+        sys.stdout = stdout0
+        sys.stderr = stderr0
+        log_fp.close()
 
 if __name__ == "__main__":
     main()

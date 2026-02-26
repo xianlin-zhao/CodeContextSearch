@@ -1,6 +1,6 @@
 import os
-#os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-os.environ['HF_ENDPOINT'] = 'https://huggingface.co'
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+# os.environ['HF_ENDPOINT'] = 'https://huggingface.co'
 import json
 import pandas as pd
 from typing import Any, Dict, Optional
@@ -12,8 +12,8 @@ from rank_bm25 import BM25Okapi
 from tqdm import tqdm
 from utils.query_refine import refine_query
 
-# PROJECT_PATH = "System/mrjob"
-PROJECT_PATH = "Internet/boto"
+PROJECT_PATH = "System/mrjob"
+# PROJECT_PATH = "Internet/boto"
 # PROJECT_PATH ="Database/alembic"
 
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
@@ -22,11 +22,11 @@ PROJECT_PATH = "Internet/boto"
 # refined_queries_cache_path= '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json'
 # ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json'
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
+FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/mrjob/0128/filtered.jsonl" 
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json'
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
 
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
@@ -38,26 +38,57 @@ DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False
-USE_REFINED_QUERY = True
+USE_REFINED_QUERY = False
 
 # Recall parameters
 # RECALL_CLUSTER_K = 5  # Use top 5 clusters for recall
-CLUSTER_KS = [6, 7, 8]
-SIG_KS = [5, 10, 15,20]
+CLUSTER_KS = [5, 6, 7]
+SIG_KS = [15, 20]
 
-variables_enre = set()
+DEBUG_ON = False
+DEBUG_EXAMPLE_ID = 32
+DEBUG_CLUSTER_K = 5
+DEBUG_SIG_K = 15
+
+variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个变量，就认为成功
+unresolved_attribute_enre = set()  # enre中的此类型通常表示一个类里的self.xxx属性，只要搜到的代码出现了self.xxx，就认为成功
+module_enre = set()  # 模块（其实是python文件），有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
+package_enre = set()  # 包，会出现与module类似的情况
 
 
-def load_enre_json(json_path: str) -> None:
-    with open(json_path, "r") as f:
-        data = json.load(f)
+# 读取enre的解析结果文件，重点读取Variable, Unresolved Attribute, Module, Package类型
+def load_enre_elements(json_path):
+    if not os.path.exists(json_path):
+        print(f"Warning: ENRE JSON file not found at {json_path}")
+        return
+
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Error reading ENRE JSON: {e}")
+        return
 
     variables = data.get("variables", [])
     for var in variables:
-        if not var.get("category", "").startswith("Un") and var.get("category") == "Variable":
-            qname = var.get("qualifiedName")
+        if var.get('category') == 'Variable':
+            qname = var.get('qualifiedName')
             if qname:
                 variables_enre.add(qname)
+        elif var.get('category') == 'Unresolved Attribute':
+            # 必须存在"File"字段，且File必须包含"/"，否则可能是外部库文件里面的属性
+            if 'File' in var and '/' in var.get('File'):
+                qname = var.get('qualifiedName')
+                if qname:
+                    unresolved_attribute_enre.add(qname)
+        elif var.get('category') == 'Module':
+            qname = var.get('qualifiedName')
+            if qname:
+                module_enre.add(qname)
+        elif var.get('category') == 'Package':
+            qname = var.get('qualifiedName')
+            if qname:
+                package_enre.add(qname)
 
 
 def _normalize_symbol(s: str) -> str:
@@ -71,23 +102,60 @@ def compute_task_recall(
     searched_context_code_list: list[Dict[str, Any]],
 ) -> Dict[str, Any]:
     dep = dependency or []
+    dep_set = {x for x in dep}
+
+    # 这里搜到的只能是函数或类
     retrieved_set = {
         _normalize_symbol(str(x.get("method_signature", "")))
         for x in searched_context_code_list
         if isinstance(x, dict)
     }
-    dep_total = len(dep)
-    hit = 0
+    # 特判：如果retrieve的元素是xx.__init__.yy这种格式，要转成xx.yy，因为enre的解析结果和DevEval不一样
+    retrieved_set = {x.replace(".__init__", "") for x in retrieved_set}
 
+    dep_total = len(dep_set)
+
+    hit_set = dep_set & retrieved_set
+    hit = len(hit_set) if dep_total > 0 else 0
+
+    # 特判
     for x in dep:
-        if x in retrieved_set:
-            hit += 1
-            continue
         if x in variables_enre:
-            var_name = x.split(".")[-1]
+            # 如果是变量，就看该变量是否出现在某段代码里
+            var_name = x.split('.')[-1]
             for context_code in searched_context_code_list:
-                code_detail = context_code.get("method_code") or ""
+                code_detail = context_code.get("method_code", "")
                 if var_name in code_detail:
+                    hit_set.add(x)
+                    hit += 1
+                    break
+        elif x in unresolved_attribute_enre:
+            attr_name = x.split('.')[-1]  # 属性名
+            class_name = '.'.join(x.split('.')[:-1])  # 类名是属性名前面的全部
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                code_detail = context_code.get("method_code", "")
+                # 如果这段搜到的代码真的在class_name类里面，且包含self.xxx属性，就认为成功
+                if sig.startswith(f"{class_name}.") and f"self.{attr_name}" in code_detail:
+                    hit_set.add(x)
+                    hit += 1
+                    break
+        elif x in module_enre:
+            # 如果是模块，就看该模块名称是否为某个context_code的sig的前缀
+            module_name = x
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                if sig.startswith(module_name):
+                    hit_set.add(x)
+                    hit += 1
+                    break
+        elif x in package_enre:
+            # 如果是包，就看该包名称是否为某个context_code的sig的前缀，与Module类似
+            package_name = x
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                if sig.startswith(package_name):
+                    hit_set.add(x)
                     hit += 1
                     break
 
@@ -131,7 +199,7 @@ def analyze_project(project_path):
     print(f"Loaded {len(method_names)} unique method names from features.")
     print(method_names[:10])
 
-    load_enre_json(ENRE_JSON)
+    load_enre_elements(ENRE_JSON)
 
     print("Encoding clusters...")
     # # model = SentenceTransformer('all-mpnet-base-v2')
@@ -296,6 +364,15 @@ def analyze_project(project_path):
             "hybrid": {}
         }
 
+        # 是否为DEBUG所关注的任务、top_k cluster、top_k method
+        # 因为运行一次可能会跑多种cluster和method数量的配置，DEBUG目前支持打印某个任务、某个配置下的详细信息
+        debug_hit = (
+            DEBUG_ON and 
+            (DEBUG_EXAMPLE_ID is not None and example_counter == DEBUG_EXAMPLE_ID)
+            and (DEBUG_CLUSTER_K is None or DEBUG_CLUSTER_K in CLUSTER_KS)
+            and (DEBUG_SIG_K is None or DEBUG_SIG_K in SIG_KS)
+        )
+
         # Iterate over different Cluster Recall Ks
         for ck in CLUSTER_KS:
             # 1. Feature Search Recall (Top ck clusters)
@@ -311,8 +388,8 @@ def analyze_project(project_path):
             
             # 2. BM25 Re-ranking on Code
             final_methods = []
+            scored_candidates = []
             if candidate_indices:
-                scored_candidates = []
                 for idx in candidate_indices:
                     scored_candidates.append((all_bm25_scores[idx], methods_corpus_strings[idx]))
                 
@@ -322,6 +399,31 @@ def analyze_project(project_path):
                 # Extract method signatures
                 final_methods = [x[1] for x in scored_candidates]
             
+            if debug_hit and ck == DEBUG_CLUSTER_K:
+                print("\n" + "=" * 100)
+                print(f"[DEBUG] example_id={example_counter} ck={ck} sk={DEBUG_SIG_K}")
+                print(f"[DEBUG] query: {query}")
+                print(f"[DEBUG] ground_truth({len(deps)}):")
+                for d in deps:
+                    print(f"  - {d}")
+
+                top_cluster_idx = np.argsort(similarities)[-ck:][::-1]
+                print(f"[DEBUG] feature_top{ck}_clusters:")
+                for rank, cidx in enumerate(top_cluster_idx, start=1):
+                    cid = str(clusters.iloc[cidx]["id"])
+                    cdesc = str(clusters.iloc[cidx]["desc"])
+                    sim = float(similarities[cidx])
+                    methods_in_cluster = df[df["id"] == cid]["method_name"].tolist()
+                    print(f"  [{rank}] cluster_id={cid} sim={sim:.6f}")
+                    print(f"      feature_desc: {cdesc}")
+                    print(f"      methods({len(methods_in_cluster)}):")
+                    for m in methods_in_cluster:
+                        print(f"        - {m}")
+
+                unique_recalled = len(set(recalled_raw_names))
+                print(f"[DEBUG] recalled_raw_method_names: total={len(recalled_raw_names)} unique={unique_recalled}")
+                print(f"[DEBUG] bm25_candidates_in_corpus: {len(candidate_indices)}")
+
             # 3. Calculate metrics for different Signature Top-Ks (SIG_KS)
             record["hybrid"][f"recall_top{ck}_clusters"] = {}
             
@@ -329,7 +431,7 @@ def analyze_project(project_path):
                 mk = final_methods[:sk]
                 
                 searched_context_code_list = [
-                    {"method_signature": m, "method_code": method_sig_to_code.get(m, "")}
+                    {"sig": _normalize_symbol(m), "method_signature": m, "method_code": method_sig_to_code.get(m, "")}
                     for m in mk
                 ]
                 recall_info = compute_task_recall(deps, searched_context_code_list)
@@ -349,6 +451,13 @@ def analyze_project(project_path):
                     "metrics": {"P": p, "R": r, "F1": f1, "pred": num_pred, "match": num_match, "gt": num_gt_ex},
                     "predictions": [{"method": m, "match": (_normalize_symbol(m) in deps)} for m in mk]
                 }
+
+                if debug_hit and ck == DEBUG_CLUSTER_K and sk == DEBUG_SIG_K:
+                    print(f"[DEBUG] bm25_rerank_top{sk}:")
+                    for rank, (score, sig) in enumerate(scored_candidates[:sk], start=1):
+                        is_match = _normalize_symbol(sig) in deps
+                        print(f"  [{rank:02d}] score={float(score):.6f} match={is_match} method={sig}")
+                    print("=" * 100)
         
         hybrid_records.append(record)
 
