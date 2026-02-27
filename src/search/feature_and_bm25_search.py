@@ -13,7 +13,9 @@ from utils.query_refine import refine_query
 
 # PROJECT_PATH = "System/mrjob"
 # PROJECT_PATH = "Internet/boto"
-PROJECT_PATH ="Database/alembic"
+# PROJECT_PATH ="Database/alembic"
+# PROJECT_PATH = "Multimedia/Mopidy"
+PROJECT_PATH = "Security/diffprivlib"
 
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
@@ -28,12 +30,12 @@ PROJECT_PATH ="Database/alembic"
 # refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
 # ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv" 
-METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods_with_desc.csv"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/refined_queries.json' 
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json"
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv" 
+METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods_with_desc.csv"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl" 
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/refined_queries.json' 
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 
@@ -41,6 +43,7 @@ DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False
 USE_REFINED_QUERY = False
+TOP_KS = [1, 2, 3]
 
 variables_enre = set()
 
@@ -126,6 +129,12 @@ def analyze_project(project_path):
         df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
         method_names = df['method_name_norm'].unique().tolist()
     #print(method_names[:30])
+
+    method_norm_to_feature_id = {}
+    for fid, m in zip(df["id"].astype(str).tolist(), df["method_name"].astype(str).tolist()):
+        m_norm = _normalize_symbol(m)
+        if m_norm and m_norm not in method_norm_to_feature_id:
+            method_norm_to_feature_id[m_norm] = fid
 
     # #model = SentenceTransformer('all-mpnet-base-v2')
     # model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -271,6 +280,47 @@ def analyze_project(project_path):
             example_counter += 1
             data = json.loads(line.strip())
             deps = []
+            target_method = data.get("namespace") or ""
+            target_feature_id = method_norm_to_feature_id.get(target_method)
+            target_feature_other_methods = []
+            if target_feature_id is not None:
+                target_feature_methods = (
+                    df.loc[df["id"].astype(str) == str(target_feature_id), "method_name"]
+                    .astype(str)
+                    .tolist()
+                )
+                target_method_norm = _normalize_symbol(target_method)
+                target_feature_other_methods = [
+                    _normalize_symbol(m) for m in target_feature_methods if _normalize_symbol(m) != target_method_norm
+                ]
+
+            target_method_sig = resolve_method_signature(target_method)
+            target_method_code = method_sig_to_code.get(target_method_sig, "")
+            similar_methods = {}
+            target_code_tokens = tokenize_code(target_method_code) if target_method_code else []
+            if target_code_tokens:
+                target_code_scores = bm25_code.get_scores(target_code_tokens)
+                target_code_order = np.argsort(target_code_scores)
+                target_method_norm = _normalize_symbol(target_method)
+                for k in TOP_KS:
+                    k_int = int(k)
+                    selected = []
+                    seen = set()
+                    for idx in target_code_order[::-1]:
+                        m = methods_corpus_strings[int(idx)]
+                        m_norm = _normalize_symbol(m)
+                        if m_norm == target_method_norm:
+                            continue
+                        if m_norm in seen:
+                            continue
+                        selected.append(m_norm)
+                        seen.add(m_norm)
+                        if len(selected) >= k_int:
+                            break
+                    similar_methods[f"top{k_int}"] = selected
+            else:
+                for k in TOP_KS:
+                    similar_methods[f"top{int(k)}"] = []
             #从数据中提取真实的依赖关系（ dependency ），这些是本次搜索的“正确答案”
             deps.extend(data['dependency']['intra_class'])
             deps.extend(data['dependency']['intra_file'])
@@ -339,6 +389,10 @@ def analyze_project(project_path):
             feature_record = {
                 "example_id": example_counter,
                 "query": query,
+                "target_method": target_method,
+                "similar_methods": similar_methods,
+                "target_feature_id": target_feature_id,
+                "target_feature_other_methods": target_feature_other_methods,
                 "ground_truth": deps,
                 "feature": {}
             }

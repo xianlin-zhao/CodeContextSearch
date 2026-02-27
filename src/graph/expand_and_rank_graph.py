@@ -14,13 +14,24 @@ sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
 
 from search.search_models.unixcoder import UniXcoder
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/feature_graph_results"
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System"#mrjob
-#PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
+# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
+# ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
+# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
+# OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
+
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results"
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database" #alembic
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #modipy
+TOP_KS = [15]
+
+ENABLE_EXTRA_EXPANDED_NODE_BONUS = False    
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
     if device is None:
@@ -187,118 +198,342 @@ def get_class_code(file_path, class_qname):
             return ""
 
 def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
-    # G is the original graph from GML
-    # Mark original nodes
     for node in G.nodes():
-        G.nodes[node]['src_type'] = 'original'
-        
+        if 'src_type' not in G.nodes[node]:
+            G.nodes[node]['src_type'] = 'original'
+
+    def preferred_id_type():
+        for n in G.nodes():
+            return str if isinstance(n, str) else int
+        return str
+
+    preferred_type = preferred_id_type()
+
+    def node_key_for_enre_id(enre_id):
+        if enre_id in G.nodes:
+            return enre_id
+        sid = str(enre_id)
+        if sid in G.nodes:
+            return sid
+        return sid if preferred_type is str else enre_id
+
+    def safe_int(x):
+        try:
+            return int(x)
+        except Exception:
+            return None
+
+    def get_method_info(qname):
+        if not qname:
+            return {}
+        if qname in method_map:
+            return method_map[qname]
+        base = qname.split('(')[0]
+        if base in method_map:
+            return method_map[base]
+        short = base.split('.')[-1]
+        return method_map.get(short, {})
+
     nodes_to_add = []
     edges_to_add = []
-    
-    # Iterate over original nodes to expand
-    # We need to be careful not to modify G while iterating
-    original_nodes = list(G.nodes(data=True))
-    
-    added_node_ids = set() # Track nodes added in this expansion step to avoid duplicates in nodes_to_add
-    
-    for node_id, node_data in original_nodes:
-        # We need to map node_id (from GML) to ENRE id if they are different.
-        # Assuming GML node ids match ENRE ids or we can look them up.
-        # In build_graph.py, it seems we used ENRE ids.
-        
-        # Check if node exists in valid_nodes (ENRE data)
-        # GML might store IDs as strings or ints, ENRE uses ints usually.
-        try:
-            enre_id = int(node_id)
-        except:
-            continue
-            
-        if enre_id not in valid_nodes:
-            continue
-            
-        enre_node = valid_nodes[enre_id]
-        category = node_data.get('category')
-        
-        if category == 'Function':
-            # 1. Outgoing edges: Call, Use, Contain -> Function
-            if enre_id in adj:
-                for dest_id, kind in adj[enre_id]:
-                    if kind in ['Call', 'Use', 'Contain']:
-                        if dest_id in valid_nodes and valid_nodes[dest_id].get('category') == 'Function':
-                            # check if it's in G first.
-                            is_in_graph = str(dest_id) in G.nodes or dest_id in G.nodes
-                            
-                            if not is_in_graph:
-                                if dest_id not in added_node_ids:
-                                    # Prepare new node
-                                    dest_node_info = valid_nodes[dest_id]
-                                    qname = id_to_qname.get(dest_id, "")
-                                    
-                                    # Add node and edge
-                                    nodes_to_add.append((dest_id, {
-                                        'sig': qname,
-                                        'category': 'Function',
-                                        'src_type': 'expand',
-                                        'method_signature': method_map[qname].get('method_signature', ''),
-                                        'func_file': method_map[qname].get('func_file', ''),
-                                        'method_code': method_map[qname].get('method_code', '')
-                                    }))
-                                    added_node_ids.add(dest_id)
-                                    edges_to_add.append((node_id, dest_id, {'kind': kind}))
-                            
-                            
-                            
-            # 2. Incoming edges: Define -> Class
-            if enre_id in reverse_adj:
-                for src_id, kind in reverse_adj[enre_id]:
-                    if kind == 'Define':
-                        if src_id in valid_nodes and valid_nodes[src_id].get('category') == 'Class':
-                             # Check if src_id is in graph
-                            is_in_graph = str(src_id) in G.nodes or src_id in G.nodes
-                            
-                            if not is_in_graph:
-                                if src_id not in added_node_ids:
-                                    # Prepare new node
-                                    src_node_info = valid_nodes[src_id]
-                                    qname = id_to_qname.get(src_id, "")
-                                    file_path = src_node_info['File']
-                                    
-                                    class_code = ""
-                                    if file_path:
-                                        class_code = get_class_code(file_path, qname)
-                                        
-                                    nodes_to_add.append((src_id, {
-                                        'sig': qname,
-                                        'category': 'Class',
-                                        'src_type': 'expand',
-                                        'method_signature': qname,
-                                        'func_file': file_path,
-                                        'method_code': class_code 
-                                    }))
-                                    added_node_ids.add(src_id)
-                                    edges_to_add.append((src_id, node_id, {'kind': kind}))
-                            
-                            
+    added_node_keys = set()
 
-    # Apply additions
+    def ensure_function_node(enre_id):
+        key = node_key_for_enre_id(enre_id)
+        if key in G.nodes or key in added_node_keys:
+            return key
+        qname = id_to_qname.get(enre_id, "")
+        method_info = get_method_info(qname)
+        nodes_to_add.append((key, {
+            'sig': qname,
+            'category': 'Function',
+            'src_type': 'expand',
+            'method_signature': method_info.get('method_signature', ''),
+            'func_file': method_info.get('func_file', ''),
+            'method_code': method_info.get('method_code', '')
+        }))
+        added_node_keys.add(key)
+        return key
+
+    original_function_enre_ids = []
+    for node_id, node_data in list(G.nodes(data=True)):
+        if node_data.get('src_type') != 'original' or node_data.get('category') != 'Function':
+            continue
+        enre_id = safe_int(node_id)
+        if enre_id is None or enre_id not in valid_nodes:
+            continue
+        original_function_enre_ids.append(enre_id)
+
+    for enre_id in original_function_enre_ids:
+        src_key = node_key_for_enre_id(enre_id)
+
+        if enre_id in adj:
+            for dest_id, kind in adj[enre_id]:
+                if kind not in ['Call', 'Use', 'Contain']:
+                    continue
+                if dest_id not in valid_nodes or valid_nodes[dest_id].get('category') != 'Function':
+                    continue
+                dest_key = ensure_function_node(dest_id)
+                edges_to_add.append((src_key, dest_key, {'kind': kind}))
+
+        if enre_id in reverse_adj:
+            for caller_id, kind in reverse_adj[enre_id]:
+                if kind != 'Call':
+                    continue
+                if caller_id not in valid_nodes or valid_nodes[caller_id].get('category') != 'Function':
+                    continue
+                caller_key = ensure_function_node(caller_id)
+                edges_to_add.append((caller_key, src_key, {'kind': kind}))
+
     for n, attr in nodes_to_add:
         if n not in G:
             G.add_node(n, **attr)
-        else:
-            # If node exists (e.g. was original), maybe update src_type? 
-            # User said "原图里面的点的src_type都为original". 
-            # If we encounter it again as expansion target, we should probably NOT overwrite 'original' with 'expand'.
-            # So only add if not present.
-            pass
-            
+
     for u, v, attr in edges_to_add:
         if not G.has_edge(u, v):
             G.add_edge(u, v, **attr)
-            
+
+    all_function_enre_ids = set()
+    for node_id, node_data in G.nodes(data=True):
+        if node_data.get('category') != 'Function':
+            continue
+        enre_id = safe_int(node_id)
+        if enre_id is None or enre_id not in valid_nodes:
+            continue
+        all_function_enre_ids.add(enre_id)
+
+    class_nodes_to_add = []
+    class_edges_to_add = []
+    class_added_keys = set()
+
+    def ensure_class_node_in_second_pass(enre_id):
+        key = node_key_for_enre_id(enre_id)
+        if key in G.nodes or key in class_added_keys:
+            return key
+        src_node_info = valid_nodes[enre_id]
+        qname = id_to_qname.get(enre_id, "")
+        file_path = src_node_info.get('File', "")
+        class_code = get_class_code(file_path, qname) if file_path else ""
+        class_nodes_to_add.append((key, {
+            'sig': qname,
+            'category': 'Class',
+            'src_type': 'expand',
+            'method_signature': qname,
+            'func_file': file_path,
+            'method_code': class_code
+        }))
+        class_added_keys.add(key)
+        return key
+
+    for func_enre_id in all_function_enre_ids:
+        func_key = node_key_for_enre_id(func_enre_id)
+        if func_enre_id not in reverse_adj:
+            continue
+        for class_id, kind in reverse_adj[func_enre_id]:
+            if kind != 'Define':
+                continue
+            if class_id not in valid_nodes or valid_nodes[class_id].get('category') != 'Class':
+                continue
+            class_key = ensure_class_node_in_second_pass(class_id)
+            class_edges_to_add.append((class_key, func_key, {'kind': kind}))
+
+    for n, attr in class_nodes_to_add:
+        if n not in G:
+            G.add_node(n, **attr)
+
+    for u, v, attr in class_edges_to_add:
+        if not G.has_edge(u, v):
+            G.add_edge(u, v, **attr)
+
     return G
+
+def get_graph_input_dirs(base_dir):
+    try:
+        children = [os.path.join(base_dir, name) for name in os.listdir(base_dir)]
+    except FileNotFoundError:
+        return []
+
+    def has_ori_gml_files(dir_path):
+        try:
+            for name in os.listdir(dir_path):
+                if name.endswith("_ori.gml"):
+                    return True
+        except Exception:
+            return False
+        return False
+
+    subdirs = [p for p in children if os.path.isdir(p)]
+    subdirs_with_ori = [p for p in subdirs if has_ori_gml_files(p)]
+    if subdirs_with_ori:
+        return sorted(subdirs_with_ori)
+
+    if has_ori_gml_files(base_dir):
+        return [base_dir]
+
+    return sorted(subdirs) if subdirs else [base_dir]
+
+def process_graph_dir(graph_dir, tasks, model, device, method_map, valid_nodes, id_to_qname, adj, reverse_adj):
+    def is_truthy(v):
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return v != 0
+        if isinstance(v, str):
+            return v.strip().lower() in {"true", "1", "yes", "y"}
+        return False
+
+    for i, task in enumerate(tasks):
+        task_id = task.get('example_id', i + 1)
+        query = task.get('requirement', {}).get('Functionality', '') + ' ' + task.get('requirement', {}).get('Arguments', '')
+
+        dependency = task.get('dependency', {})
+        gt_methods = []
+        gt_methods.extend(dependency.get('intra_class', []))
+        gt_methods.extend(dependency.get('intra_file', []))
+        gt_methods.extend(dependency.get('cross_file', []))
+
+        gml_filename = f"task_{task_id}_ori.gml"
+        gml_path = os.path.join(graph_dir, gml_filename)
+
+        if not os.path.exists(gml_path):
+            print(f"Graph file not found for task {task_id}: {gml_path}")
+            continue
+
+        try:
+            G = nx.read_gml(gml_path)
+        except Exception as e:
+            print(f"Error reading GML for task {task_id}: {e}")
+            continue
+
+        original_node_ids = set(G.nodes())
+
+        print(f"Processing Task {task_id}: Graph has {len(G.nodes)} nodes and {len(G.edges)} edges.")
+
+        expanded_G = expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname)
+        print(f"  -> Expanded: {len(expanded_G.nodes)} nodes and {len(expanded_G.edges)} edges.")
+
+        mid_gml_filename = f"task_{task_id}_mid.gml"
+        mid_gml_path = os.path.join(graph_dir, mid_gml_filename)
+        nx.write_gml(expanded_G, mid_gml_path)
+        print(f"  -> Saved expanded graph to {mid_gml_path}")
+
+        # if i < 3:
+        #     print(f"  -> Debug: First 3 expanded nodes for task {task_id}:")
+        #     for n in list(expanded_G.nodes(data=True))[:10]:
+        #         print(f"    - Node ID: {n[0]}, Attributes: {n[1]}")
+
+        nl_emb = encode_nl_with_unixcoder(model, device, query)
+
+        node_list = list(expanded_G.nodes(data=True))
+        node_codes = []
+        node_ids = []
+
+        for n, d in node_list:
+            code = ""
+            if 'method_code' in d:
+                code = d['method_code']
+
+            node_codes.append(code if code else "")
+            node_ids.append(n)
+
+        if node_codes:
+            code_embs = encode_code_with_unixcoder(model, device, node_codes, batch_size=32)
+
+            if code_embs.shape[0] > 0:
+                sims = torch.mm(nl_emb.to(device), code_embs.to(device).t()).squeeze(0).cpu().numpy()
+            else:
+                sims = np.zeros(len(node_codes))
+        else:
+            sims = np.zeros(len(node_codes))
+
+        personalization = {}
+        for idx, n in enumerate(node_ids):
+            score = max(0.0, float(sims[idx]))
+            personalization[n] = score
+
+        boosted_nodes = 0
+        boosted_total_delta = 0.0
+        if ENABLE_EXTRA_EXPANDED_NODE_BONUS:
+            for n in original_node_ids:
+                attrs = expanded_G.nodes.get(n, {})
+                inc = 0.0
+                if is_truthy(attrs.get("is_SameFeature")):
+                    inc += 0.1
+                if is_truthy(attrs.get("is_SameFile")):
+                    inc += 0.1
+                if is_truthy(attrs.get("is_SimilarMethod")):
+                    inc += 0.1
+                if inc <= 0:
+                    continue
+
+                neighbors = set()
+                try:
+                    neighbors.update(expanded_G.successors(n))
+                except Exception:
+                    pass
+                try:
+                    neighbors.update(expanded_G.predecessors(n))
+                except Exception:
+                    pass
+
+                for nb in neighbors:
+                    if nb in original_node_ids:
+                        continue
+                    personalization[nb] = float(personalization.get(nb, 0.0)) + inc
+                    boosted_nodes += 1
+                    boosted_total_delta += inc
+
+        if boosted_nodes > 0:
+            print(
+                f"  -> Personalization boosted: edges_to_expand_nodes={boosted_nodes} total_delta={boosted_total_delta:.4f}",
+                flush=True,
+            )
+
+        total_score = sum(personalization.values())
+        if total_score == 0:
+            print("???")
+            personalization = {n: 1.0/len(node_ids) for n in node_ids}
+
+        try:
+            ppr_scores = nx.pagerank(expanded_G, alpha=0.85, personalization=personalization)
+        except Exception as e:
+            print(f"  -> PageRank failed: {e}. Using similarity scores directly.")
+            ppr_scores = personalization
+
+        top_ks_raw = TOP_KS if isinstance(TOP_KS, (list, tuple, set)) else [TOP_KS]
+        top_ks = []
+        for k in top_ks_raw:
+            try:
+                k_int = int(k)
+            except Exception:
+                continue
+            if k_int > 0:
+                top_ks.append(k_int)
+        top_ks = list(dict.fromkeys(top_ks))
+        if not top_ks:
+            top_ks = [15]
+
+        sorted_nodes = sorted(ppr_scores.items(), key=lambda x: x[1], reverse=True)
+        rank_gml_filename = f"task_{task_id}_rank.gml"
+
+        for K in top_ks:
+            top_k_nodes = [n for n, _ in sorted_nodes[:K]]
+
+            subgraph = expanded_G.subgraph(top_k_nodes).copy()
+
+            for node in subgraph.nodes():
+                if node in ppr_scores:
+                    subgraph.nodes[node]['score'] = ppr_scores[node]
+
+            top_k_dir = os.path.join(graph_dir, f"PageRank-{K}-subgraph")
+            os.makedirs(top_k_dir, exist_ok=True)
+            rank_gml_path = os.path.join(top_k_dir, rank_gml_filename)
+            nx.write_gml(subgraph, rank_gml_path)
+            print(f"  -> Saved top-{K} subgraph to {rank_gml_path}")
 
 def main():
     model, device = load_unixcoder_model()
+    os.makedirs(OUTPUT_GRAPH_PATH, exist_ok=True)
 
     # 1. Load Data
     method_map = load_methods_csv(METHODS_CSV)
@@ -312,131 +547,22 @@ def main():
                 tasks.append(json.loads(line))
     print(f"Loaded {len(tasks)} tasks.")
     
-    # 2. Process each task
-    for i, task in enumerate(tasks):
-        task_id = task.get('example_id', i + 1)
-        # Query construction
-        query = task.get('requirement', {}).get('Functionality', '') + ' ' + task.get('requirement', {}).get('Arguments', '')
-        
-        # Ground Truth
-        dependency = task.get('dependency', {})
-        gt_methods = []
-        gt_methods.extend(dependency.get('intra_class', []))
-        gt_methods.extend(dependency.get('intra_file', []))
-        gt_methods.extend(dependency.get('cross_file', []))
-        
-        # Load Graph
-        gml_filename = f"task_{task_id}_ori.gml"
-        gml_path = os.path.join(OUTPUT_GRAPH_PATH, gml_filename)
-        
-        if not os.path.exists(gml_path):
-            print(f"Graph file not found for task {task_id}: {gml_path}")
+    graph_dirs = get_graph_input_dirs(OUTPUT_GRAPH_PATH)
+    for graph_dir in graph_dirs:
+        if not os.path.isdir(graph_dir):
             continue
-            
-        try:
-            G = nx.read_gml(gml_path)
-        except Exception as e:
-            print(f"Error reading GML for task {task_id}: {e}")
-            continue
-            
-        print(f"Processing Task {task_id}: Graph has {len(G.nodes)} nodes and {len(G.edges)} edges.")
-        
-        # Expand Graph
-        expanded_G = expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname)
-        print(f"  -> Expanded: {len(expanded_G.nodes)} nodes and {len(expanded_G.edges)} edges.")
-
-        # Save Expanded Graph (Mid)
-        mid_gml_filename = f"task_{task_id}_mid.gml"
-        mid_gml_path = os.path.join(OUTPUT_GRAPH_PATH, mid_gml_filename)
-        nx.write_gml(expanded_G, mid_gml_path)
-        print(f"  -> Saved expanded graph to {mid_gml_path}")
-
-        # 输出一些调试信息，比如前3个任务，各自输出扩展节点中的前3个
-        if i < 3:
-            print(f"  -> Debug: First 3 expanded nodes for task {task_id}:")
-            for n in list(expanded_G.nodes(data=True))[:10]:
-                print(f"    - Node ID: {n[0]}, Attributes: {n[1]}")
-
-        
-        # Compute similarity scores
-        # 1. Encode query
-        nl_emb = encode_nl_with_unixcoder(model, device, query) # (1, D)
-        
-        # 2. Encode nodes (method_code)
-        # We need to collect codes for all nodes in expanded_G
-        node_list = list(expanded_G.nodes(data=True))
-        node_codes = []
-        node_ids = []
-        
-        for n, d in node_list:
-            # Try to get method_code
-            # For original nodes (Function), we might need to look up in method_map if not present
-            # or check ENRE info.
-            # In build_graph.py, we didn't explicitly store method_code in GML nodes?
-            # Let's check if G nodes have 'method_code' or 'qualifiedName' to look up.
-            
-            code = ""
-            if 'method_code' in d:
-                code = d['method_code']
-            
-            node_codes.append(code if code else "")
-            node_ids.append(n)
-            
-        # Encode all codes
-        # print("  -> Encoding node codes...")
-        if node_codes:
-             code_embs = encode_code_with_unixcoder(model, device, node_codes, batch_size=32) # (N, D)
-             
-             # Calculate cosine similarity
-             # nl_emb: (1, D), code_embs: (N, D)
-             # sims: (1, N)
-             if code_embs.shape[0] > 0:
-                 sims = torch.mm(nl_emb.to(device), code_embs.to(device).t()).squeeze(0).cpu().numpy() # (N,)
-             else:
-                 sims = np.zeros(len(node_codes))
-        else:
-            sims = np.zeros(len(node_codes))
-            
-        # Assign personalization vector
-        personalization = {}
-        for idx, n in enumerate(node_ids):
-            # Ensure non-negative
-            score = max(0.0, float(sims[idx]))
-            personalization[n] = score
-            
-        # Normalize personalization (PageRank requires sum=1, but nx handles it if sum>0)
-        # If all zero, use uniform? Or just uniform.
-        total_score = sum(personalization.values())
-        if total_score == 0:
-            print("???")
-            personalization = {n: 1.0/len(node_ids) for n in node_ids}
-            
-        # Run Personalized PageRank
-        try:
-            # alpha=0.85 is standard, but we can tune.
-            ppr_scores = nx.pagerank(expanded_G, alpha=0.85, personalization=personalization)
-        except Exception as e:
-            print(f"  -> PageRank failed: {e}. Using similarity scores directly.")
-            ppr_scores = personalization
-            
-        # Select Top-K
-        K = 15
-        sorted_nodes = sorted(ppr_scores.items(), key=lambda x: x[1], reverse=True)
-        top_k_nodes = [n for n, s in sorted_nodes[:K]]
-        
-        # Create Subgraph
-        subgraph = expanded_G.subgraph(top_k_nodes).copy()
-
-        # Add score to nodes
-        for node in subgraph.nodes():
-            if node in ppr_scores:
-                subgraph.nodes[node]['score'] = ppr_scores[node]
-        
-        # Save Subgraph
-        rank_gml_filename = f"task_{task_id}_rank.gml"
-        rank_gml_path = os.path.join(OUTPUT_GRAPH_PATH, rank_gml_filename)
-        nx.write_gml(subgraph, rank_gml_path)
-        print(f"  -> Saved top-{K} subgraph to {rank_gml_path}")
+        print(f"Processing graph directory: {graph_dir}")
+        process_graph_dir(
+            graph_dir=graph_dir,
+            tasks=tasks,
+            model=model,
+            device=device,
+            method_map=method_map,
+            valid_nodes=valid_nodes,
+            id_to_qname=id_to_qname,
+            adj=adj,
+            reverse_adj=reverse_adj,
+        )
 
 if __name__ == "__main__":
     main()
