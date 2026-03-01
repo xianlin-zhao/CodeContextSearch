@@ -167,6 +167,29 @@ def compute_task_recall(
     }
 
 
+def is_method_hit(method_signature: str, method_code: str, deps_list: list[str]) -> bool:
+	norm_sig = _normalize_symbol(method_signature).replace(".__init__", "")
+	for x in deps_list:
+		if x == norm_sig:
+			return True
+		if x in variables_enre:
+			var_name = x.split(".")[-1]
+			if var_name and var_name in (method_code or ""):
+				return True
+		if x in unresolved_attribute_enre:
+			attr_name = x.split('.')[-1]
+			class_name = '.'.join(x.split('.')[:-1])
+			if norm_sig.startswith(f"{class_name}.") and f"self.{attr_name}" in (method_code or ""):
+				return True
+		if x in module_enre:
+			if norm_sig.startswith(x):
+				return True
+		if x in package_enre:
+			if norm_sig.startswith(x):
+				return True
+	return False
+
+
 def analyze_project(project_path):
     # Step 1: Filter by project_path
     print("Filtering data...")
@@ -449,7 +472,13 @@ def analyze_project(project_path):
                 
                 record["hybrid"][f"recall_top{ck}_clusters"][f"rank_top{sk}"] = {
                     "metrics": {"P": p, "R": r, "F1": f1, "pred": num_pred, "match": num_match, "gt": num_gt_ex},
-                    "predictions": [{"method": m, "match": (_normalize_symbol(m) in deps)} for m in mk]
+                    "predictions": [
+                        {
+                            "method": m,
+                            "match": is_method_hit(m, method_sig_to_code.get(m, ""), deps)
+                        }
+                        for m in mk
+                    ]
                 }
 
                 if debug_hit and ck == DEBUG_CLUSTER_K and sk == DEBUG_SIG_K:
