@@ -20,18 +20,18 @@ from search.search_models.unixcoder import UniXcoder
 # OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results"
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results"
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database" #alembic
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #modipy
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #mopidy
 TOP_KS = [15]
 
-ENABLE_EXTRA_EXPANDED_NODE_BONUS = False    
+ENABLE_EXTRA_EXPANDED_NODE_BONUS = True  
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
     if device is None:
