@@ -6,15 +6,15 @@ import os
 from collections import defaultdict
 
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diagnostic_feature.jsonl"
-# OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
+FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0228/filtered.jsonl" 
+DIAGNOSTIC_JSONL = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0228/diagnostic_feature.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0228/graph_results"
+# OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = False
-PREFIX = "diffprivlib"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
+PREFIX = "alembic"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
 #用来控制我们选几个相似的method（用来后面的类调用链预测加分的）
 SIMILAR_TOPK = 3
 

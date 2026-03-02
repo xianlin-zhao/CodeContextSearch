@@ -8,9 +8,9 @@ import pandas as pd
 from collections import defaultdict
 
 # Configuration
-GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results'
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/duoduoduo_expand_graph_match_comparison_report.csv'
+GRAPH_RESULTS_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/graph_results'
+FILTERED_JSONL_PATH = '/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/filtered.jsonl'
+OUTPUT_REPORT_FILE = '/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/expand_graph_match_comparison_report.csv'
 ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json'
 
 DEBUG = True
