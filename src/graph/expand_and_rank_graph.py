@@ -1,18 +1,19 @@
 import os
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 import sys
 sys.path.append("..")
 import json
-import pandas as pd
-import networkx as nx
 from collections import defaultdict
-import torch
-import torch.nn.functional as F
+
+import networkx as nx
 import numpy as np
-import sys
+import pandas as pd
+import torch
+
 sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
 
-from search.search_models.unixcoder import UniXcoder
+from graph.embedding_backends import create_embedding_backend
 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
 # ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
@@ -25,63 +26,23 @@ ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-repor
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
 OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results"
 PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
+FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/graph_results"
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database" #alembic
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #mopidy
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database"  #alembic
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #modipy
 TOP_KS = [15]
 
-ENABLE_EXTRA_EXPANDED_NODE_BONUS = True  
+ENABLE_EXTRA_EXPANDED_NODE_BONUS = True
 
-def load_unixcoder_model(model_path_or_name=None, device=None):
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    try:
-        model = UniXcoder(model_path_or_name if model_path_or_name else "microsoft/unixcoder-base")
-        model.to(device)
-        model.eval()
-        return model, device
-    except Exception:
-        raise ImportError("Unable to import UniXcoder. Ensure UniXcoder is installed / in PYTHONPATH.")
-
-def encode_nl_with_unixcoder(model, device, text, max_length=512):
-    tokens_ids = model.tokenize([text], max_length=max_length, mode="<encoder-only>")
-    source_ids = torch.tensor(tokens_ids).to(device)
-    with torch.no_grad():
-        _, nl_embedding = model(source_ids)
-        nl_embedding = F.normalize(nl_embedding, p=2, dim=1)
-    return nl_embedding.cpu()
-
-def encode_code_with_unixcoder(model, device, code_list, batch_size=32, max_length=512):
-    all_embs = []
-    for i in range(0, len(code_list), batch_size):
-        batch = code_list[i:i+batch_size]
-        # Tokenize individually to handle variable lengths
-        batch_token_ids = []
-        for code in batch:
-             # Ensure code is string
-            if not isinstance(code, str):
-                code = ""
-            ids = model.tokenize([code], max_length=max_length, mode="<encoder-only>")
-            batch_token_ids.append(ids[0]) # ids is list of list
-            
-        # Pad to max length in batch
-        max_len_in_batch = max(len(x) for x in batch_token_ids)
-        padded_ids = []
-        for x in batch_token_ids:
-            padded_ids.append(x + [model.config.pad_token_id] * (max_len_in_batch - len(x)))
-            
-        source_ids = torch.tensor(padded_ids).to(device)
-        
-        with torch.no_grad():
-            _, code_embedding = model(source_ids)
-            normed = F.normalize(code_embedding, p=2, dim=1)
-            all_embs.append(normed.cpu())
-            
-    if len(all_embs) == 0:
-        return torch.empty((0,0))
-    return torch.cat(all_embs, dim=0)
+# Which embedding backend to use for personalization scores.
+#   - "unixcoder": default, UniXcoder-based embeddings
+#   - "bge-code": use BAAI/bge-code-v1 via sentence-transformers
+EMBEDDING_BACKEND_KIND = "bge-code"
 
 def load_methods_csv(csv_path):
     print("Loading METHODS_CSV...")
@@ -372,7 +333,16 @@ def get_graph_input_dirs(base_dir):
 
     return sorted(subdirs) if subdirs else [base_dir]
 
-def process_graph_dir(graph_dir, tasks, model, device, method_map, valid_nodes, id_to_qname, adj, reverse_adj):
+def process_graph_dir(
+    graph_dir,
+    tasks,
+    embedder,
+    method_map,
+    valid_nodes,
+    id_to_qname,
+    adj,
+    reverse_adj,
+):
     def is_truthy(v):
         if isinstance(v, bool):
             return v
@@ -422,7 +392,8 @@ def process_graph_dir(graph_dir, tasks, model, device, method_map, valid_nodes, 
         #     for n in list(expanded_G.nodes(data=True))[:10]:
         #         print(f"    - Node ID: {n[0]}, Attributes: {n[1]}")
 
-        nl_emb = encode_nl_with_unixcoder(model, device, query)
+        # Encode query and graph node code with the selected embedding backend.
+        nl_emb = embedder.encode_query(query)
 
         node_list = list(expanded_G.nodes(data=True))
         node_codes = []
@@ -437,10 +408,16 @@ def process_graph_dir(graph_dir, tasks, model, device, method_map, valid_nodes, 
             node_ids.append(n)
 
         if node_codes:
-            code_embs = encode_code_with_unixcoder(model, device, node_codes, batch_size=32)
+            code_embs = embedder.encode_code(node_codes, batch_size=32)
 
             if code_embs.shape[0] > 0:
-                sims = torch.mm(nl_emb.to(device), code_embs.to(device).t()).squeeze(0).cpu().numpy()
+                sims = (
+                    torch.mm(nl_emb, code_embs.t())
+                    .squeeze(0)
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
             else:
                 sims = np.zeros(len(node_codes))
         else:
@@ -532,7 +509,7 @@ def process_graph_dir(graph_dir, tasks, model, device, method_map, valid_nodes, 
             print(f"  -> Saved top-{K} subgraph to {rank_gml_path}")
 
 def main():
-    model, device = load_unixcoder_model()
+    embedder = create_embedding_backend(kind=EMBEDDING_BACKEND_KIND)
     os.makedirs(OUTPUT_GRAPH_PATH, exist_ok=True)
 
     # 1. Load Data
@@ -555,8 +532,7 @@ def main():
         process_graph_dir(
             graph_dir=graph_dir,
             tasks=tasks,
-            model=model,
-            device=device,
+            embedder=embedder,
             method_map=method_map,
             valid_nodes=valid_nodes,
             id_to_qname=id_to_qname,

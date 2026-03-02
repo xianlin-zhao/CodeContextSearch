@@ -2,6 +2,7 @@ import os
 import glob
 import re
 import json
+import sys
 import networkx as nx
 import pandas as pd
 from collections import defaultdict
@@ -12,9 +13,17 @@ FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/f
 OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/301_expand_graph_match_comparison_report.csv'
 ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json'
 
-variables_enre = set()
+DEBUG = True
+DEBUG_LOG_FILE = os.path.join(os.path.dirname(OUTPUT_REPORT_FILE), "compare_graph_recall.debug.log")
 
-def load_enre_variables(json_path):
+variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个变量，就认为成功
+unresolved_attribute_enre = set()  # enre中的此类型通常表示一个类里的self.xxx属性，只要搜到的代码出现了self.xxx，就认为成功
+module_enre = set()  # 模块（其实是python文件），有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
+package_enre = set()  # 包，会出现与module类似的情况
+
+
+# 读取enre的解析结果文件，重点读取Variable, Unresolved Attribute, Module, Package类型
+def load_enre_elements(json_path):
     if not os.path.exists(json_path):
         print(f"Warning: ENRE JSON file not found at {json_path}")
         return
@@ -28,11 +37,25 @@ def load_enre_variables(json_path):
 
     variables = data.get('variables', [])
     for var in variables:
-        if not var.get('category', '').startswith('Un'):
-            if var.get('category') == 'Variable':
+        if var.get('category') == 'Variable':
+            qname = var.get('qualifiedName')
+            if qname:
+                variables_enre.add(qname)
+        elif var.get('category') == 'Unresolved Attribute':
+            # 必须存在"File"字段，且File必须包含"/"，否则可能是外部库文件里面的属性
+            if 'File' in var and '/' in var.get('File'):
                 qname = var.get('qualifiedName')
                 if qname:
-                    variables_enre.add(qname)
+                    unresolved_attribute_enre.add(qname)
+        elif var.get('category') == 'Module':
+            qname = var.get('qualifiedName')
+            if qname:
+                module_enre.add(qname)
+        elif var.get('category') == 'Package':
+            qname = var.get('qualifiedName')
+            if qname:
+                package_enre.add(qname)
+
 
 def _normalize_symbol(s: str) -> str:
     if "(" in s:
@@ -42,22 +65,65 @@ def _normalize_symbol(s: str) -> str:
 def compute_task_recall(dependency, searched_context_code_list):
     dep = dependency or []
     dep_set = {x for x in dep}
+
+    # 这里搜到的只能是函数或类
     retrieved_set = {
         _normalize_symbol(str(x.get("method_signature", "")))
         for x in searched_context_code_list
         if isinstance(x, dict)
     }
-    dep_total = len(dep_set)
-    hit = len(dep_set & retrieved_set) if dep_total > 0 else 0
+    # 特判：如果retrieve的元素是xx.__init__.yy这种格式，要转成xx.yy，因为enre的解析结果和DevEval不一样
+    retrieved_set = {x.replace(".__init__", "") for x in retrieved_set}
 
+    dep_total = len(dep_set)
+
+    hit_set = dep_set & retrieved_set
+    hit = len(hit_set) if dep_total > 0 else 0
+
+    # 特判
     for x in dep:
         if x in variables_enre:
+            # 如果是变量，就看该变量是否出现在某段代码里
             var_name = x.split('.')[-1]
             for context_code in searched_context_code_list:
-                code_detail = context_code.get("method_code") or ""
+                code_detail = context_code.get("method_code", "")
                 if var_name in code_detail:
+                    hit_set.add(x)
                     hit += 1
                     break
+        elif x in unresolved_attribute_enre:
+            attr_name = x.split('.')[-1]  # 属性名
+            class_name = '.'.join(x.split('.')[:-1])  # 类名是属性名前面的全部
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                code_detail = context_code.get("method_code", "")
+                # 如果这段搜到的代码真的在class_name类里面，且包含self.xxx属性，就认为成功
+                if sig.startswith(f"{class_name}.") and f"self.{attr_name}" in code_detail:
+                    hit_set.add(x)
+                    hit += 1
+                    break
+        elif x in module_enre:
+            # 如果是模块，就看该模块名称是否为某个context_code的sig的前缀
+            module_name = x
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                if sig.startswith(module_name):
+                    hit_set.add(x)
+                    hit += 1
+                    break
+        elif x in package_enre:
+            # 如果是包，就看该包名称是否为某个context_code的sig的前缀，与Module类似
+            package_name = x
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                if sig.startswith(package_name):
+                    hit_set.add(x)
+                    hit += 1
+                    break
+    
+    if DEBUG:
+        print(f"retrieved_set: {retrieved_set}")
+        print(f"hit_set: {hit_set}")
 
     recall = (hit / dep_total) if dep_total > 0 else None
     return {
@@ -117,6 +183,7 @@ def load_context_code_list_from_gml(gml_path):
             continue
 
         context_code_list.append({
+            "sig": str(node.get("method_signature", "")),
             "method_signature": str(node.get("method_signature", "")),
             "method_code": str(node.get("method_code", "")),
         })
@@ -146,8 +213,21 @@ def list_rank_subdirs(base_dir):
 def sanitize_col(s):
     return re.sub(r"[^A-Za-z0-9_]+", "_", str(s)).strip("_")
 
+def _redirect_stdout_stderr_to_file(log_file: str):
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    return open(log_file, "w", encoding="utf-8", buffering=1)
+
 def main():
-    load_enre_variables(ENRE_JSON)
+    stdout0, stderr0 = sys.stdout, sys.stderr
+    log_fp = None
+    if DEBUG:
+        log_fp = _redirect_stdout_stderr_to_file(DEBUG_LOG_FILE)
+        sys.stdout = log_fp
+        sys.stderr = log_fp
+
+    load_enre_elements(ENRE_JSON)
 
     # 1. Group files by task_id
     # Pattern: task_{id}_{type}.gml
@@ -204,6 +284,7 @@ def main():
         
         # Load GT
         dep = load_ground_truth(task_id)
+        print(f"task_id: {task_id}, dep: {dep}")
         gt_total = len(set(dep))
 
         ori_ctx = load_context_code_list_from_gml(types.get('ori'))
@@ -375,6 +456,12 @@ def main():
             avg_rank = sum_rank / total_tasks
             print(f"Average Rank Matches ({name}): {avg_rank:.2f}")
         print("="*60)
+
+    if log_fp is not None:
+        log_fp.flush()
+        sys.stdout = stdout0
+        sys.stderr = stderr0
+        log_fp.close()
 
 if __name__ == "__main__":
     main()

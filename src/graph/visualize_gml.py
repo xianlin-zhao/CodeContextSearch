@@ -9,7 +9,7 @@ import json
 app = Flask(__name__)
 
 # BASE_DIR = '/data/zxl/Search2026/outputData'
-BASE_DIR = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob'
+BASE_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/mrjob/0128/top-15-subgraph'
 # Hardcoded path to the filtered jsonl file containing ground truth
 FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl'
 
@@ -157,7 +157,7 @@ def view_graph(filename):
             node['color'] = 'red'
             node['title'] = (node.get('title', '') + "<br><b>STATUS:</b> GROUND TRUTH MATCH").strip()
             # Make GT nodes slightly larger
-            node['size'] = 20
+            node['size'] = 15
         else:
             node['color'] = '#97c2fc' # Default blue-ish
             node['size'] = 10
