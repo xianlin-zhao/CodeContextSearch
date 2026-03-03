@@ -1,7 +1,7 @@
 import argparse
-import time
-import sys
 import json
+import sys
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, Optional, Tuple
 import pandas as pd
@@ -15,6 +15,7 @@ from utils.completion_postprocess import (
 from utils.dev_eval_task import DevEvalTask, parse_task
 from utils.jsonl_io import iter_jsonl, write_jsonl_line
 from utils.source_code_utils import resolve_signature
+from utils.task_recall import compute_task_recall, load_enre_elements
 
 
 SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
@@ -56,9 +57,6 @@ PROMPT_TEMPLATE = (
 # 全局变量，存储所有method的信息，用于根据签名获取完整的代码
 method_sig_to_info = {}
 
-# 存储所有的变量，集合
-variables_enre = set()
-
 # 读入之前处理的所有method信息
 def load_methods_info(methods_csv: str) -> None:
     df_methods = pd.read_csv(methods_csv)
@@ -69,20 +67,6 @@ def load_methods_info(methods_csv: str) -> None:
         method_sig_to_info[sig] = row.to_dict()
 
     print(f"Loaded {len(method_sig_to_info)} methods from CSV.")
-
-
-def load_enre_json(json_path):
-    with open(json_path, 'r') as f:
-        data = json.load(f)
-    
-    variables = data.get('variables', [])
-    
-    for var in variables:
-        if not var.get('category', '').startswith('Un'):
-            # 把所有Variable类型的代码元素记录下来
-            if var.get('category') == 'Variable':
-                qname = var['qualifiedName']
-                variables_enre.add(qname)
 
 
 # 读入之前搜索的结果（包含是否match等指标）
@@ -150,45 +134,6 @@ def assemble_context_code_into_prompt(context_code_list: list[Dict[str, Any]]) -
             f"{context_code['method_code']}\n\n"
         )
     return context_code_in_prompt
-
-
-def _normalize_symbol(s: str) -> str:
-    if "(" in s:
-        return s.split("(", 1)[0]
-    return s
-
-
-# 计算搜索结果对于dependency的召回率
-def compute_task_recall(
-    dependency: Optional[list[str]],
-    searched_context_code_list: list[Dict[str, Any]],
-) -> Dict[str, Any]:
-    dep = dependency or []
-    dep_set = {x for x in dep}
-    retrieved_set = {
-        _normalize_symbol(str(x.get("method_signature", "")))
-        for x in searched_context_code_list
-        if isinstance(x, dict)
-    }
-    dep_total = len(dep_set)
-    hit = len(dep_set & retrieved_set) if dep_total > 0 else 0
-    
-    for x in dep:
-        if x in variables_enre:
-            var_name = x.split('.')[-1]
-            # 如果这个dependency里面的变量在某段搜到的代码中，就也认为是成功召回
-            for context_code in searched_context_code_list:
-                code_detail = context_code.get("method_code")
-                if var_name in code_detail:
-                    hit += 1
-                    break
-
-    recall = (hit / dep_total) if dep_total > 0 else None
-    return {
-        "dependency_total": dep_total,
-        "dependency_hit": hit,
-        "recall": recall,
-    }
 
 
 # 将需求文本格式化为多行注释，用于拼接在函数签名下面
@@ -362,5 +307,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     load_methods_info(METHODS_CSV)
-    load_enre_json(ENRE_JSON)
+    load_enre_elements(ENRE_JSON)
     main()
