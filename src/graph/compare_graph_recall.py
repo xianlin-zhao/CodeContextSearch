@@ -8,10 +8,10 @@ import pandas as pd
 from collections import defaultdict
 
 # Configuration
-GRAPH_RESULTS_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/graph_results'
-FILTERED_JSONL_PATH = '/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/expand_graph_match_comparison_report.csv'
-ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json'
+GRAPH_RESULTS_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/graph_results'
+FILTERED_JSONL_PATH = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/filtered.jsonl'
+OUTPUT_REPORT_FILE = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/expand_graph_match_comparison_report.csv'
+ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json'
 
 DEBUG = True
 DEBUG_LOG_FILE = os.path.join(os.path.dirname(OUTPUT_REPORT_FILE), "compare_graph_recall.debug.log")

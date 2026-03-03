@@ -13,9 +13,9 @@ from utils.query_refine import refine_query
 
 # PROJECT_PATH = "System/mrjob"
 # PROJECT_PATH = "Internet/boto"
-# PROJECT_PATH ="Database/alembic"
+PROJECT_PATH ="Database/alembic"
 # PROJECT_PATH = "Multimedia/Mopidy"
-PROJECT_PATH = "Security/diffprivlib"
+# PROJECT_PATH = "Security/diffprivlib"
 
 # FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
@@ -30,14 +30,16 @@ PROJECT_PATH = "Security/diffprivlib"
 # refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
 # ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv" 
-METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods_with_desc.csv"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/filtered.jsonl" 
-refined_queries_cache_path = '/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/refined_queries.json' 
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv" 
+METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods_with_desc.csv"
+FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/filtered.jsonl" 
+refined_queries_cache_path = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/refined_queries.json' 
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
-DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
+# DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
+# 完整数据集jsonl路径
+DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
 
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评

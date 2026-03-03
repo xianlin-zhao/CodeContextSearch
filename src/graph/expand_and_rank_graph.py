@@ -21,14 +21,14 @@ from graph.embedding_backends import create_embedding_backend
 # OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/diffprivlib-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/diffprivlib/0228/graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
+FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/graph_results"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database"  #alembic
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database"  #alembic
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #modipy
 TOP_KS = [15]
 

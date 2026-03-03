@@ -8,10 +8,10 @@ from collections import defaultdict
 
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0228/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0228/diagnostic_feature.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0228/graph_results"
-# OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib/graph_results"
+FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/filtered.jsonl" 
+DIAGNOSTIC_JSONL = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/diagnostic_feature.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/graph_results"
+# OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/graph_results"
 
 REMOVE_FIRST_DOT_PREFIX = False
 PREFIX = "alembic"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
