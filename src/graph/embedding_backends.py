@@ -118,6 +118,7 @@ class BGECodeV1Backend(BaseCodeEmbeddingBackend):
         model_name: str = "BAAI/bge-code-v1",
         device: Optional[torch.device] = None,
         instruction: Optional[str] = None,
+        max_seq_length: int = 4096,
     ) -> None:
         if SentenceTransformer is None:
             raise ImportError(
@@ -126,6 +127,7 @@ class BGECodeV1Backend(BaseCodeEmbeddingBackend):
             )
         super().__init__(device=device)
         self.instruction = 'Given a requirement description in text, retrieve code snippets that are relevant to the requirement.'
+        self.max_seq_length = max_seq_length
 
         model_kwargs = {}
         if self.device.type == "cuda":
@@ -138,6 +140,21 @@ class BGECodeV1Backend(BaseCodeEmbeddingBackend):
             device=str(self.device),
             model_kwargs=model_kwargs,
         )
+        # Cap sequence length so long code is truncated and CUDA OOM is avoided.
+        self.model.max_seq_length = max_seq_length
+
+
+    def _truncate_to_max_tokens(self, text: str, max_tokens: Optional[int] = None) -> str:
+        """Truncate text by character count so encode() does not trigger CUDA OOM.
+        Uses ~3 chars/token (conservative for code) to avoid extra tokenizer calls and keep speed.
+        """
+        if not text or (max_tokens is not None and max_tokens <= 0):
+            return text
+        raw_limit = max_tokens if max_tokens is not None else self.max_seq_length
+        limit = max(1, raw_limit - 2)  # leave room for [CLS]/[SEP]
+        max_chars = limit * 3  # conservative: code ~3–4 chars per token
+        return text[:max_chars] if len(text) > max_chars else text
+
 
     def _build_query_text(self, text: str) -> str:
         if self.instruction:
@@ -160,12 +177,12 @@ class BGECodeV1Backend(BaseCodeEmbeddingBackend):
         if not code_list:
             return torch.empty((0, 0), device=self.device)
 
-        # Ensure all elements are strings.
+        # Ensure all elements are strings and truncate long code to avoid CUDA OOM.
         norm_codes = []
         for c in code_list:
             if not isinstance(c, str):
                 c = "" if c is None else str(c)
-            norm_codes.append(c)
+            norm_codes.append(self._truncate_to_max_tokens(c))
 
         embs = self.model.encode(
             norm_codes,
