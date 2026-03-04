@@ -12,8 +12,8 @@ from rank_bm25 import BM25Okapi
 from utils.query_refine import refine_query
 
 # PROJECT_PATH = "System/mrjob"
-# PROJECT_PATH = "Internet/boto"
-PROJECT_PATH ="Database/alembic"
+PROJECT_PATH = "Internet/boto"
+# PROJECT_PATH ="Database/alembic"
 # PROJECT_PATH = "Multimedia/Mopidy"
 # PROJECT_PATH = "Security/diffprivlib"
 
@@ -30,12 +30,12 @@ PROJECT_PATH ="Database/alembic"
 # refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
 # ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv" 
-METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods_with_desc.csv"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/filtered.jsonl" 
-refined_queries_cache_path = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/refined_queries.json' 
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/features.csv" 
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv" 
+METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods_with_desc.csv"
+FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/filtered.jsonl" 
+refined_queries_cache_path = '/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/refined_queries.json' 
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 # DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 # 完整数据集jsonl路径

@@ -15,10 +15,10 @@ from utils.query_refine import refine_query
 # METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
 # FILTERED_FILE = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl"
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv" 
-FILTERED_FILE = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/filtered.jsonl" 
-refined_queries_cache_path = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/refined_queries.json'
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv" 
+FILTERED_FILE = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/filtered.jsonl" 
+refined_queries_cache_path = '/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/refined_queries.json'
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
 # FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"

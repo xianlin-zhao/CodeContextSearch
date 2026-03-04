@@ -160,3 +160,7 @@ def get_class_skeleton(project_path, file_path, class_qname):
                 return f.read()
         except Exception:
             return ""
+
+
+def get_class_code_default(project_path, file_path, class_qname):
+    return ""

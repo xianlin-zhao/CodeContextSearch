@@ -14,7 +14,7 @@ import torch
 sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
 
 from graph.embedding_backends import create_embedding_backend
-from graph.class_code_extract import get_class_code, get_class_skeleton
+from graph.class_code_extract import *
 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
 # ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
@@ -22,13 +22,13 @@ from graph.class_code_extract import get_class_code, get_class_skeleton
 # OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
+FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/graph_results"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System/mrjob" #mrjob
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet/boto" #boto
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database/alembic"  #alembic
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet/boto" #boto
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database/alembic"  #alembic
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security/diffprivlib" #diffprivlib
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia/Mopidy" #modipy
 TOP_KS = [15]
@@ -41,7 +41,7 @@ ENABLE_EXTRA_EXPANDED_NODE_BONUS = True
 EMBEDDING_BACKEND_KIND = "bge-code"
 
 # Set True to print class skeleton extraction preview (file, class, length, first lines)
-DEBUG_CLASS_SKELETON = True
+DEBUG_CLASS_SKELETON = False
 
 def load_methods_csv(csv_path):
     print("Loading METHODS_CSV...")
