@@ -36,8 +36,9 @@ METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/meth
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
 refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json' 
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
-# DevEval数据集case的路径（json，不是数据集项目本身）
-DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
+# DevEval数据集case的路径(json，不是数据集项目本身)
+# DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
+DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
 
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
@@ -49,7 +50,7 @@ CLUSTER_KS = [1, 3, 5]#这个是控制feature search方法的
 
 variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个变量，就认为成功
 unresolved_attribute_enre = set()  # enre中的此类型通常表示一个类里的self.xxx属性，只要搜到的代码出现了self.xxx，就认为成功
-module_enre = set()  # 模块（其实是python文件），有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
+module_enre = set()  # 模块(其实是python文件)，有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
 package_enre = set()  # 包，会出现与module类似的情况
 
 
@@ -315,6 +316,10 @@ def analyze_project(project_path):
             )
         return ctx
 
+    def filter_out_target_method(method_strs: list[str], target_method_str: str) -> list[str]:
+        target_norm = _normalize_symbol(target_method_str)
+        return [m for m in method_strs if _normalize_symbol(m) != target_norm]
+
     def is_method_hit(method_signature: str, method_code: str, deps_list: list[str]) -> bool:
         norm_sig = _normalize_symbol(method_signature).replace(".__init__", "")
         for x in deps_list:
@@ -356,7 +361,7 @@ def analyze_project(project_path):
 
         cluster_metrics = {k: {"match": 0, "pred": 0} for k in CLUSTER_KS}
 
-        sig_ks = [5, 10, 15]
+        sig_ks = [5, 10, 15 ,20]
         sig_metrics = {k: {"match": 0, "pred": 0} for k in sig_ks}
 
         code_metrics = {k: {"match": 0, "pred": 0} for k in sig_ks}
@@ -430,7 +435,7 @@ def analyze_project(project_path):
             else:
                 for k in TOP_KS:
                     similar_methods[f"top{int(k)}"] = []
-            #从数据中提取真实的依赖关系（ dependency ），这些是本次搜索的“正确答案”
+            #从数据中提取真实的依赖关系( dependency )，这些是本次搜索的“正确答案”
             deps.extend(data['dependency']['intra_class'])
             deps.extend(data['dependency']['intra_file'])
             deps.extend(data['dependency']['cross_file'])
@@ -467,6 +472,7 @@ def analyze_project(project_path):
 
             for k in CLUSTER_KS:
                 methods_k = methods_from_top_k_clusters(similarities, k)
+                methods_k = filter_out_target_method(methods_k, target_method)
                 cluster_metrics[k]["pred"] += len(methods_k)
                 cluster_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(methods_k))["dependency_hit"]
 
@@ -476,6 +482,7 @@ def analyze_project(project_path):
             sig_order = np.argsort(sig_scores)
             for k in sig_ks:
                 m = bm25_topk_strings(sig_order, k, methods_corpus_strings)
+                m = filter_out_target_method(m, target_method)
                 sig_metrics[k]["pred"] += len(m)
                 sig_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(m))["dependency_hit"]
 
@@ -484,6 +491,7 @@ def analyze_project(project_path):
             code_order = np.argsort(code_scores)
             for k in sig_ks:
                 m = bm25_topk_strings(code_order, k, methods_corpus_strings)
+                m = filter_out_target_method(m, target_method)
                 code_metrics[k]["pred"] += len(m)
                 code_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(m))["dependency_hit"]
 
@@ -492,6 +500,7 @@ def analyze_project(project_path):
             desc_order = np.argsort(desc_scores)
             for k in sig_ks:
                 m = bm25_topk_strings(desc_order, k, methods_desc_corpus_strings)
+                m = filter_out_target_method(m, target_method)
                 desc_metrics[k]["pred"] += len(m)
                 desc_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(m))["dependency_hit"]
 
@@ -507,6 +516,7 @@ def analyze_project(project_path):
             }
             for k in CLUSTER_KS:
                 mk = methods_from_top_k_clusters(similarities, k)
+                mk = filter_out_target_method(mk, target_method)
                 num_pred = len(mk)
                 recall_info = compute_task_recall(deps, build_context_code_list(mk))
                 num_match = int(recall_info["dependency_hit"])
@@ -545,6 +555,7 @@ def analyze_project(project_path):
             }
             for k in sig_ks:
                 mk = bm25_topk_strings(sig_order, k,methods_corpus_strings)
+                mk = filter_out_target_method(mk, target_method)
                 num_pred = len(mk)
                 recall_info = compute_task_recall(deps, build_context_code_list(mk))
                 num_match = int(recall_info["dependency_hit"])
@@ -579,6 +590,7 @@ def analyze_project(project_path):
             }
             for k in sig_ks:
                 mk = bm25_topk_strings(code_order, k, methods_corpus_strings)
+                mk = filter_out_target_method(mk, target_method)
                 num_pred = len(mk)
                 recall_info = compute_task_recall(deps, build_context_code_list(mk))
                 num_match = int(recall_info["dependency_hit"])
@@ -613,6 +625,7 @@ def analyze_project(project_path):
             }
             for k in sig_ks:
                 mk = bm25_topk_strings(desc_order, k, methods_desc_corpus_strings)
+                mk = filter_out_target_method(mk, target_method)
                 num_pred = len(mk)
                 recall_info = compute_task_recall(deps, build_context_code_list(mk))
                 num_match = int(recall_info["dependency_hit"])
@@ -699,7 +712,7 @@ def analyze_project(project_path):
             #print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%")
             denom = safe_div(m, p) + safe_div(m, top_gt)
             f1_val = (2 * safe_div(m, p) * safe_div(m, top_gt) / denom) if denom > 0 else 0
-            print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%, F1={f1_val*100:.2f}%")
+            print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%, F1={f1_val*100:.2f}%，{(safe_div(m, top_gt))*100:.2f}%({m}/{p})")
         print("--------------------------------")
 
         # ---- print BM25 desc-based metrics ----

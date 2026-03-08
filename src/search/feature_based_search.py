@@ -34,27 +34,52 @@ FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtere
 refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json' 
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
-DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
-TOP_KS = [1, 2, 3]
-CLUSTER_KS = [1]
+# DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
+DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
+TOP_SM = [1, 2, 3]#控制相似的methods的数量
+CLUSTER_KS = [1, 3]
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False
 USE_REFINED_QUERY = False
 
 variables_enre = set()
+unresolved_attribute_enre = set()
+module_enre = set()
+package_enre = set()
 
 
-def load_enre_json(json_path: str) -> None:
-    with open(json_path, "r") as f:
-        data = json.load(f)
+def load_enre_elements(json_path):
+    if not os.path.exists(json_path):
+        print(f"Warning: ENRE JSON file not found at {json_path}")
+        return
+
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Error reading ENRE JSON: {e}")
+        return
 
     variables = data.get("variables", [])
     for var in variables:
-        if not var.get("category", "").startswith("Un") and var.get("category") == "Variable":
-            qname = var.get("qualifiedName")
+        if var.get('category') == 'Variable':
+            qname = var.get('qualifiedName')
             if qname:
                 variables_enre.add(qname)
+        elif var.get('category') == 'Unresolved Attribute':
+            if 'File' in var and '/' in var.get('File'):
+                qname = var.get('qualifiedName')
+                if qname:
+                    unresolved_attribute_enre.add(qname)
+        elif var.get('category') == 'Module':
+            qname = var.get('qualifiedName')
+            if qname:
+                module_enre.add(qname)
+        elif var.get('category') == 'Package':
+            qname = var.get('qualifiedName')
+            if qname:
+                package_enre.add(qname)
 
 
 def _normalize_symbol(s: str) -> str:
@@ -89,23 +114,52 @@ def compute_task_recall(
     searched_context_code_list: list[Dict[str, Any]],
 ) -> Dict[str, Any]:
     dep = dependency or []
+    dep_set = {x for x in dep}
+
     retrieved_set = {
         _normalize_symbol(str(x.get("method_signature", "")))
         for x in searched_context_code_list
         if isinstance(x, dict)
     }
-    dep_total = len(dep)
-    hit = 0
+    retrieved_set = {x.replace(".__init__", "") for x in retrieved_set}
+
+    dep_total = len(dep_set)
+    hit_set = dep_set & retrieved_set
+    hit = len(hit_set) if dep_total > 0 else 0
 
     for x in dep:
-        if x in retrieved_set:
-            hit += 1
-            continue
         if x in variables_enre:
-            var_name = x.split(".")[-1]
+            var_name = x.split('.')[-1]
             for context_code in searched_context_code_list:
-                code_detail = context_code.get("method_code") or ""
+                code_detail = context_code.get("method_code", "")
                 if var_name in code_detail:
+                    hit_set.add(x)
+                    hit += 1
+                    break
+        elif x in unresolved_attribute_enre:
+            attr_name = x.split('.')[-1]
+            class_name = '.'.join(x.split('.')[:-1])
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                code_detail = context_code.get("method_code", "")
+                if sig.startswith(f"{class_name}.") and f"self.{attr_name}" in code_detail:
+                    hit_set.add(x)
+                    hit += 1
+                    break
+        elif x in module_enre:
+            module_name = x
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                if sig.startswith(module_name):
+                    hit_set.add(x)
+                    hit += 1
+                    break
+        elif x in package_enre:
+            package_name = x
+            for context_code in searched_context_code_list:
+                sig = context_code.get("sig", "")
+                if sig.startswith(package_name):
+                    hit_set.add(x)
                     hit += 1
                     break
 
@@ -115,6 +169,7 @@ def compute_task_recall(
         "dependency_hit": hit,
         "recall": recall,
     }
+
 
 def analyze_project(project_path):
     # Create output directory
@@ -174,7 +229,7 @@ def analyze_project(project_path):
     if 'method_signature' not in methods_df.columns or 'method_code' not in methods_df.columns:
         raise ValueError("methods.csv must contain 'method_signature' and 'method_code' columns")
 
-    load_enre_json(ENRE_JSON)
+    load_enre_elements(ENRE_JSON)
 
     method_sig_to_code = dict(
         zip(
@@ -210,19 +265,36 @@ def analyze_project(project_path):
             sig = resolve_method_signature(m)
             ctx.append(
                 {
+                    "sig": _normalize_symbol(sig),
                     "method_signature": sig,
                     "method_code": method_sig_to_code.get(sig, ""),
                 }
             )
         return ctx
 
+    def filter_out_target_method(method_strs: list[str], target_method_str: str) -> list[str]:
+        target_norm = _normalize_symbol(target_method_str)
+        return [m for m in method_strs if _normalize_symbol(m) != target_norm]
+
     def is_method_hit(method_signature: str, method_code: str, deps_list: list[str]) -> bool:
-        if _normalize_symbol(method_signature) in deps_list:
-            return True
+        norm_sig = _normalize_symbol(method_signature).replace(".__init__", "")
         for x in deps_list:
+            if x == norm_sig:
+                return True
             if x in variables_enre:
                 var_name = x.split(".")[-1]
                 if var_name and var_name in (method_code or ""):
+                    return True
+            if x in unresolved_attribute_enre:
+                attr_name = x.split('.')[-1]
+                class_name = '.'.join(x.split('.')[:-1])
+                if norm_sig.startswith(f"{class_name}.") and f"self.{attr_name}" in (method_code or ""):
+                    return True
+            if x in module_enre:
+                if norm_sig.startswith(x):
+                    return True
+            if x in package_enre:
+                if norm_sig.startswith(x):
                     return True
         return False
 
@@ -306,7 +378,7 @@ def analyze_project(project_path):
                 target_code_scores = bm25_code.get_scores(target_code_tokens)
                 target_code_order = np.argsort(target_code_scores)
                 target_method_norm = _normalize_symbol(target_method)
-                for k in TOP_KS:
+                for k in TOP_SM:
                     k_int = int(k)
                     selected = []
                     seen = set()
@@ -323,7 +395,7 @@ def analyze_project(project_path):
                             break
                     similar_methods[f"top{k_int}"] = selected
             else:
-                for k in TOP_KS:
+                for k in TOP_SM:
                     similar_methods[f"top{int(k)}"] = []
             #从数据中提取真实的依赖关系（ dependency ），这些是本次搜索的“正确答案”
             deps.extend(data['dependency']['intra_class'])
@@ -362,6 +434,7 @@ def analyze_project(project_path):
 
             for k in CLUSTER_KS:
                 methods_k = methods_from_top_k_clusters(similarities, k, target_feature_id)
+                methods_k = filter_out_target_method(methods_k, target_method)
                 cluster_metrics[k]["pred"] += len(methods_k)
                 cluster_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(methods_k))["dependency_hit"]
 
@@ -377,6 +450,7 @@ def analyze_project(project_path):
             }
             for k in CLUSTER_KS:
                 mk = methods_from_top_k_clusters(similarities, k, target_feature_id)
+                mk = filter_out_target_method(mk, target_method)
                 num_pred = len(mk)
                 recall_info = compute_task_recall(deps, build_context_code_list(mk))
                 num_match = int(recall_info["dependency_hit"])
@@ -408,7 +482,7 @@ def analyze_project(project_path):
             feature_records.append(feature_record)
 
         out_dir = os.path.dirname(FILTERED_PATH)
-        feature_path = os.path.join(out_dir, "diagnostic_***_feature.jsonl")
+        feature_path = os.path.join(out_dir, "diagnostic_***all_feature.jsonl")
         with open(feature_path, "w", encoding="utf-8") as fo:
             for rec in feature_records:
                 fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
