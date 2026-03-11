@@ -9,6 +9,14 @@ module_enre: set = set()
 package_enre: set = set()
 
 
+def clear_enre_elements() -> None:
+    """清空 ENRE 元素集合。批量跑多项目时，每切换项目前调用，再调用 load_enre_elements 加载当前项目。"""
+    variables_enre.clear()
+    unresolved_attribute_enre.clear()
+    module_enre.clear()
+    package_enre.clear()
+
+
 # 读取enre的解析结果文件，重点读取Variable, Unresolved Attribute, Module, Package类型
 def load_enre_elements(json_path: str) -> None:
     if not os.path.exists(json_path):

@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 import sys
 from dataclasses import dataclass
@@ -21,7 +22,8 @@ OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/I
 MODEL_NAME = "deepseek-v3"
 MODEL_BACKEND_CHOICE = "openai"
 
-DEBUG = True  # 是否打印调试信息
+DEBUG = True  # 是否打印调试信息到控制台
+DEBUG_LOG_FULL = True  # DEBUG 为 True 时，是否同时将全量内容（完整 prompt、生成代码等）写入日志文件
 
 PROMPT_TEMPLATE = (
     "Please complete the function in the given Python code.\n\n"
@@ -64,6 +66,7 @@ def generate_completions(
     filtered_path: str,
     source_code_dir: str,
     output_jsonl: str,
+    debug_log_path_override: Optional[str] = None,
     backend: BackendName,
     model: str,
     temperature: float,
@@ -87,6 +90,13 @@ def generate_completions(
         timeout_s=timeout_s,
     )
 
+    # DEBUG 时写入全量日志文件（完整 prompt、raw/final completion），便于检查
+    debug_log_path = None
+    if DEBUG and DEBUG_LOG_FULL:
+        debug_log_path = debug_log_path_override or (os.path.splitext(output_jsonl)[0] + "_debug.log")
+        with open(debug_log_path, "w", encoding="utf-8") as _:
+            pass
+
     processed = 0
     for record in iter_jsonl(filtered_path):
         task = parse_task(record)
@@ -104,6 +114,17 @@ def generate_completions(
             print("[debug] signature:\n" + preview_text(signature), file=sys.stderr)
             print("[debug] requirement_comment:\n" + preview_text(requirement_comment), file=sys.stderr)
             print("[debug] prompt:\n" + preview_text(prompt), file=sys.stderr)
+            if DEBUG_LOG_FULL and debug_log_path:
+                sep = "=" * 80
+                with open(debug_log_path, "a", encoding="utf-8") as logf:
+                    logf.write(f"\n{sep}\n")
+                    logf.write(f"Task idx={processed}  namespace={task.namespace}\n")
+                    logf.write(f"file={abs_file}\n")
+                    logf.write(f"{sep}\n\n")
+                    logf.write("--- Full prompt (complete) ---\n\n")
+                    logf.write(prompt)
+                    logf.write("\n\n")
+                    logf.flush()
 
         raw_completion = client.generate(prompt)
         extracted_completion = extract_code_from_markdown(raw_completion)
@@ -113,11 +134,19 @@ def generate_completions(
             requirement_comment=requirement_comment,
             requirement_text=task.requirement_text,
         )
-        
+
         if DEBUG:
             print("[debug] raw_completion:\n" + preview_text(raw_completion), file=sys.stderr)
             print("[debug] extracted_completion:\n" + preview_text(extracted_completion), file=sys.stderr)
             print("[debug] final_completion:\n" + preview_text(completion), file=sys.stderr)
+            if DEBUG_LOG_FULL and debug_log_path:
+                with open(debug_log_path, "a", encoding="utf-8") as logf:
+                    logf.write("--- Raw completion from LLM ---\n\n")
+                    logf.write(raw_completion)
+                    logf.write("\n\n--- Final completion (after postprocess) ---\n\n")
+                    logf.write(completion)
+                    logf.write("\n\n")
+                    logf.flush()
 
         write_jsonl_line(output_jsonl, {
             "namespace": task.namespace,
@@ -137,6 +166,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--filtered_path", default=FILTERED_PATH)
     p.add_argument("--source_code_dir", default=SOURCE_CODE_DIR)
     p.add_argument("--output", default=OUTPUT_COMPLETION_PATH)
+    p.add_argument("--debug_log", default="", help="当 DEBUG 且 DEBUG_LOG_FULL 时：全量日志路径；默认 <output>_debug.log")
     p.add_argument("--backend", choices=["openai", "ollama", "mock"], default=MODEL_BACKEND_CHOICE)
     p.add_argument("--model", default=MODEL_NAME)
     p.add_argument("--temperature", type=float, default=0)
@@ -156,6 +186,7 @@ def main() -> None:
         filtered_path=args.filtered_path,
         source_code_dir=args.source_code_dir,
         output_jsonl=args.output,
+        debug_log_path_override=(args.debug_log.strip() or None),
         backend=args.backend,
         model=args.model,
         temperature=args.temperature,
