@@ -6,15 +6,15 @@ import os
 from collections import defaultdict
 
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/diagnostic_feature.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/graph_results"
-# OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/graph_results"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/diagnostic_***all_feature.jsonl"    
+# OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/0115/graph_results"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all"
 
 REMOVE_FIRST_DOT_PREFIX = False
-PREFIX = "boto"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
+PREFIX = "mrjob"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
 #用来控制我们选几个相似的method（用来后面的类调用链预测加分的）
 SIMILAR_TOPK = 3
 
@@ -162,7 +162,8 @@ def build_graph():
 
         preds = []
         try:
-            preds = rec["feature"]["top3"]["predictions"]
+            # preds = rec["feature"]["top3"]["predictions"]
+            preds = rec["feature"]["top3"]["predictions"]#这个是*指定的idea的preds
             filtered_preds = [
                 p
                 for p in preds

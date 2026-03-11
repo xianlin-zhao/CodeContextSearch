@@ -1,8 +1,8 @@
+import os
 import time
 import json
 import random
 from openai import OpenAI
-import os
 from dotenv import load_dotenv
 
 load_dotenv()

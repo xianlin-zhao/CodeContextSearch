@@ -8,17 +8,17 @@ import pandas as pd
 from collections import defaultdict
 
 # Configuration
-GRAPH_RESULTS_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/graph_results'
-FILTERED_JSONL_PATH = '/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/expand_graph_match_comparison_report.csv'
-ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json'
+GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all'
+FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl'
+OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/303_expand_graph_match_comparison_report.csv'
+ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json'
 
 DEBUG = True
 DEBUG_LOG_FILE = os.path.join(os.path.dirname(OUTPUT_REPORT_FILE), "compare_graph_recall.debug.log")
 
 variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个变量，就认为成功
 unresolved_attribute_enre = set()  # enre中的此类型通常表示一个类里的self.xxx属性，只要搜到的代码出现了self.xxx，就认为成功
-module_enre = set()  # 模块（其实是python文件），有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
+module_enre = set()  # 模块(其实是python文件)，有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
 package_enre = set()  # 包，会出现与module类似的情况
 
 
@@ -168,13 +168,13 @@ def load_ground_truth(task_id):
 
 def load_context_code_list_from_gml(gml_path):
     if not gml_path or not os.path.exists(gml_path):
-        return []
+        return [], 0
 
     try:
         G = nx.read_gml(gml_path)
     except Exception as e:
         print(f"Error reading {gml_path}: {e}")
-        return []
+        return [], 0
 
     context_code_list = []
     for node_id in G.nodes():
@@ -188,13 +188,13 @@ def load_context_code_list_from_gml(gml_path):
             "method_code": str(node.get("method_code", "")),
         })
 
-    return context_code_list
+    return context_code_list, G.number_of_nodes()
 
 def get_matched_count(gml_path, gt_sigs):
     """
     Reads a GML file and computes dependency hit count with variable-aware matching.
     """
-    context_code_list = load_context_code_list_from_gml(gml_path)
+    context_code_list, _pred = load_context_code_list_from_gml(gml_path)
     stats = compute_task_recall(list(gt_sigs), context_code_list)
     return stats.get("dependency_hit", 0)
 
@@ -255,6 +255,9 @@ def main():
 
     # 2. Analyze each task
     results = []
+    sum_ori_pred = 0
+    sum_mid_pred = 0
+    sum_rank_pred_by_dir = {name: 0 for name in rank_subdirs}
     
     # Sort by task_id integer
     sorted_task_ids = sorted(task_files.keys(), key=lambda x: int(x))
@@ -287,8 +290,10 @@ def main():
         print(f"task_id: {task_id}, dep: {dep}")
         gt_total = len(set(dep))
 
-        ori_ctx = load_context_code_list_from_gml(types.get('ori'))
-        mid_ctx = load_context_code_list_from_gml(types.get('mid'))
+        ori_ctx, ori_pred = load_context_code_list_from_gml(types.get('ori'))
+        mid_ctx, mid_pred = load_context_code_list_from_gml(types.get('mid'))
+        sum_ori_pred += ori_pred
+        sum_mid_pred += mid_pred
 
         ori_stats = compute_task_recall(dep, ori_ctx)
         mid_stats = compute_task_recall(dep, mid_ctx)
@@ -311,7 +316,8 @@ def main():
         rank_stats_by_dir = {}
         for name in rank_subdirs:
             rank_path = rank_files_by_dir.get(name, {}).get(task_id)
-            rank_ctx = load_context_code_list_from_gml(rank_path)
+            rank_ctx, rank_pred = load_context_code_list_from_gml(rank_path)
+            sum_rank_pred_by_dir[name] += rank_pred
             rank_stats = compute_task_recall(dep, rank_ctx)
             rank_stats_by_dir[name] = rank_stats
             rank_hit = rank_stats.get("dependency_hit", 0)
@@ -402,6 +408,7 @@ def main():
         print(f"  Improved:  {mid_improved:3d} tasks ({calc_pct(mid_improved, total_tasks):6.2f}%)")
         print(f"  Decreased: {mid_decreased:3d} tasks ({calc_pct(mid_decreased, total_tasks):6.2f}%)")
         
+        rank_improved_decreased = {}
         for name in rank_subdirs:
             col = sanitize_col(name)
             improved = sum(
@@ -412,11 +419,16 @@ def main():
                 1 for r in results
                 if is_valid_recall(r.get(f"rank_recall__{col}")) and is_valid_recall(r.get('ori_recall')) and r[f"rank_recall__{col}"] < r['ori_recall']
             )
+            rank_improved_decreased[name] = (improved, decreased)
             print("-" * 30)
             print(f"Rank Method ({name}):")
             print(f"  Improved:  {improved:3d} tasks ({calc_pct(improved, total_tasks):6.2f}%)")
             print(f"  Decreased: {decreased:3d} tasks ({calc_pct(decreased, total_tasks):6.2f}%)")
         
+        print("="*60)
+        ratio_parts = [f"{mid_improved}/{mid_decreased}"]
+        ratio_parts.extend([f"{rank_improved_decreased.get(name, (0, 0))[0]}/{rank_improved_decreased.get(name, (0, 0))[1]}" for name in rank_subdirs])
+        print(" ".join(ratio_parts))
         print("="*60)
         print("RECALL STATISTICS")
         print("-" * 30)
@@ -425,13 +437,14 @@ def main():
         recall_mid = calc_pct(sum_mid, sum_gt)
         
         print(f"Total Ground Truth: {sum_gt}")
-        print(f"Total Ori Matches:  {sum_ori} (Recall: {recall_ori:.2f}%)")
-        print(f"Total Mid Matches:  {sum_mid} (Recall: {recall_mid:.2f}%)")
+        print(f"Total Ori Matches:  {sum_ori} / Preds: {sum_ori_pred} (Recall: {recall_ori:.2f}%)，{recall_ori:.2f}%({sum_ori}/{sum_ori_pred})")
+        print(f"Total Mid Matches:  {sum_mid} / Preds: {sum_mid_pred} (Recall: {recall_mid:.2f}%)，{recall_mid:.2f}%({sum_mid}/{sum_mid_pred})")
         for name in rank_subdirs:
             col = sanitize_col(name)
             sum_rank = sum(r.get(f"rank_hit__{col}", 0) for r in results)
             recall_rank = calc_pct(sum_rank, sum_gt)
-            print(f"Total Rank Matches ({name}): {sum_rank} (Recall: {recall_rank:.2f}%)")
+            sum_rank_pred = sum_rank_pred_by_dir.get(name, 0)
+            print(f"Total Rank Matches ({name}): {sum_rank} / Preds: {sum_rank_pred} (Recall: {recall_rank:.2f}%)，{recall_rank:.2f}%({sum_rank}/{sum_rank_pred})")
         
         print("-" * 30)
         print(f"Mid Recall Growth:  {recall_mid - recall_ori:+.2f}%")

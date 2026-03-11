@@ -22,16 +22,16 @@ from graph.class_code_extract import *
 # OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/graph_results"
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System/mrjob" #mrjob
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet/boto" #boto
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database/alembic"  #alembic
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security/diffprivlib" #diffprivlib
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia/Mopidy" #modipy
-TOP_KS = [15]
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all"
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database"  #alembic
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
+# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #modipy
+TOP_KS = [10, 15, 20]
 
 ENABLE_EXTRA_EXPANDED_NODE_BONUS = True
 
@@ -100,6 +100,37 @@ def load_enre_json(json_path):
 
 
 def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
+    def normalize_sig(sig):
+        s = "" if sig is None else str(sig)
+        base = s.split("(", 1)[0] if "(" in s else s
+        return base.lstrip(".")
+
+    target_method_sig = normalize_sig(G.graph.get("target_method", ""))
+    target_method_enre_ids = set()
+    if target_method_sig:
+        for _eid, _qname in id_to_qname.items():
+            if normalize_sig(_qname) == target_method_sig:
+                target_method_enre_ids.add(_eid)
+
+        if target_method_enre_ids:
+            nodes_to_remove = []
+            for node_id, node_data in list(G.nodes(data=True)):
+                enre_id = None
+                try:
+                    enre_id = int(node_id)
+                except Exception:
+                    enre_id = None
+
+                if enre_id is not None and enre_id in target_method_enre_ids:
+                    nodes_to_remove.append(node_id)
+                    continue
+
+                if normalize_sig(node_data.get("sig", "")) == target_method_sig:
+                    nodes_to_remove.append(node_id)
+
+            if nodes_to_remove:
+                G.remove_nodes_from(nodes_to_remove)
+
     for node in G.nodes():
         if 'src_type' not in G.nodes[node]:
             G.nodes[node]['src_type'] = 'original'
@@ -141,10 +172,15 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
     added_node_keys = set()
 
     def ensure_function_node(enre_id):
+        if target_method_enre_ids and enre_id in target_method_enre_ids:
+            return None
         key = node_key_for_enre_id(enre_id)
         if key in G.nodes or key in added_node_keys:
             return key
         qname = id_to_qname.get(enre_id, "")
+        if target_method_sig and normalize_sig(qname) == target_method_sig:
+            target_method_enre_ids.add(enre_id)
+            return None
         method_info = get_method_info(qname)
         nodes_to_add.append((key, {
             'sig': qname,
@@ -175,7 +211,11 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
                     continue
                 if dest_id not in valid_nodes or valid_nodes[dest_id].get('category') != 'Function':
                     continue
+                if target_method_enre_ids and dest_id in target_method_enre_ids:
+                    continue
                 dest_key = ensure_function_node(dest_id)
+                if dest_key is None:
+                    continue
                 edges_to_add.append((src_key, dest_key, {'kind': kind}))
 
         if enre_id in reverse_adj:
@@ -184,7 +224,11 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
                     continue
                 if caller_id not in valid_nodes or valid_nodes[caller_id].get('category') != 'Function':
                     continue
+                if target_method_enre_ids and caller_id in target_method_enre_ids:
+                    continue
                 caller_key = ensure_function_node(caller_id)
+                if caller_key is None:
+                    continue
                 edges_to_add.append((caller_key, src_key, {'kind': kind}))
 
     for n, attr in nodes_to_add:
@@ -215,7 +259,7 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
         src_node_info = valid_nodes[enre_id]
         qname = id_to_qname.get(enre_id, "")
         file_path = src_node_info.get('File', "")
-        class_code = get_class_skeleton(PROJECT_PATH, file_path, qname) if file_path else ""
+        class_code = get_class_code_default(PROJECT_PATH, file_path, qname) if file_path else ""
         if DEBUG_CLASS_SKELETON:
             if class_code:
                 preview_lines = class_code.strip().split("\n")[:20]
@@ -236,6 +280,8 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
         return key
 
     for func_enre_id in all_function_enre_ids:
+        if target_method_enre_ids and func_enre_id in target_method_enre_ids:
+            continue
         func_key = node_key_for_enre_id(func_enre_id)
         if func_enre_id not in reverse_adj:
             continue
@@ -357,7 +403,7 @@ def process_graph_dir(
             node_ids.append(n)
 
         if node_codes:
-            code_embs = embedder.encode_code(node_codes, batch_size=32)
+            code_embs = embedder.encode_code(node_codes, batch_size=16)
 
             if code_embs.shape[0] > 0:
                 sims = (

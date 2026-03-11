@@ -15,10 +15,10 @@ from utils.query_refine import refine_query
 # METHODS_CSV = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/methods.csv" 
 # FILTERED_FILE = "/home/riverbag/testRepoSummaryOut/boto/boto_testAug/1122_codet5/filtered.jsonl"
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv" 
-FILTERED_FILE = "/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/filtered.jsonl" 
-refined_queries_cache_path = '/data/zxl/Search2026/outputData/devEvalSearchOut/boto/0303_full/refined_queries.json'
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv" 
+FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json'
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
 
 # METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
 # FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
@@ -79,6 +79,11 @@ def _normalize_symbol(s: str) -> str:
 	if "(" in s:
 		return s.split("(", 1)[0]
 	return s
+
+
+def filter_out_target_method(method_strs: list[str], target_method_str: str) -> list[str]:
+	target_norm = _normalize_symbol(target_method_str)
+	return [m for m in method_strs if _normalize_symbol(m) != target_norm]
 
 
 def compute_task_recall(
@@ -259,7 +264,7 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 	code_embs_device = code_embs.to(device)
 
 	# prepare metrics accumulators for top5, top10, top15
-	topk_list = [5, 10, 15]
+	topk_list = [5, 10, 15, 20]
 	match_counts = {k: 0 for k in topk_list}
 	pred_counts = {k: 0 for k in topk_list}
 	total_gt = 0
@@ -280,6 +285,7 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 		for line in f:
 			example_counter += 1
 			data = json.loads(line.strip())
+			target_method = data.get("namespace") or ""
 			# collect deps
 			deps = []
 			deps.extend(data['dependency']['intra_class'])
@@ -331,14 +337,15 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 				else:
 					topk_idx = torch.topk(sims, k=min(k, sims.numel()), largest=True).indices.cpu().numpy()
 				# predicted method signatures
-				pred_methods = [method_signatures[i] for i in topk_idx]
+				pred_methods_raw = [method_signatures[i] for i in topk_idx]
+				pred_methods = filter_out_target_method(pred_methods_raw, target_method)
 				searched_context_code_list = [
 					{
-						"sig": _normalize_symbol(method_signatures[i]),
-						"method_signature": method_signatures[i],
-						"method_code": method_codes[i],
+						"sig": _normalize_symbol(m),
+						"method_signature": m,
+						"method_code": method_sig_to_code.get(m, ""),
 					}
-					for i in topk_idx
+					for m in pred_methods
 				]
 				num_pred = len(pred_methods)
 				recall_info = compute_task_recall(deps, searched_context_code_list)
@@ -388,7 +395,7 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 		precision = safe_div(m, p)
 		recall = safe_div(m, r)
 		f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0
-		print(f"Top{k}: Match={m}, Pred={p}, GT={r}, P={(precision*100):.2f}%, R={(recall*100):.2f}%, F1={(f1*100):.2f}%")
+		print(f"Top{k} Match: {m}, Pred: {p}, P={(precision*100):.2f}%, R={(recall*100):.2f}%, F1={(f1*100):.2f}%，{(recall*100):.2f}%({m}/{p})")
 
 if __name__ == "__main__":
 	# adjust these paths / model checkpoint as needed
