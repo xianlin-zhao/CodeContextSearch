@@ -1,10 +1,13 @@
 import argparse
-import json
-import sys
+import os
 import time
+import sys
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, Optional, Tuple
 import pandas as pd
+import networkx as nx
+import html
 
 from llm_clients import BackendName, make_client
 from utils.completion_postprocess import (
@@ -19,21 +22,18 @@ from utils.task_recall import compute_task_recall, load_enre_elements
 
 
 SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl"
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json"
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/diagnostic_unixcoder_code.jsonl"
-OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/Database_alembic/0122/unixcoder_rag_completion.jsonl"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/mrjob-report-enre.json"
+GRAPH_DIR_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/System_mrjob/0115/graph_results"
+OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/System_mrjob/0115/our_rag_completion.jsonl"
 
 # 代码生成使用的大模型
 MODEL_NAME = "deepseek-v3"
 MODEL_BACKEND_CHOICE = "openai"
 
-# RAG使用的数据源，目前有几种："bm25", "unixcoder", "feature", "feature+bm25"
-RAG_DATA_SOURCE = "unixcoder"
-
 DEBUG = True  # 是否打印调试信息
-GENERATION_FLAG = False  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
+GENERATION_FLAG = True  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
 
 PROMPT_TEMPLATE = (
     "Please complete the function in the given Python code"
@@ -82,46 +82,34 @@ def load_diagnostic_result(diagnostic_jsonl: str) -> list[Dict[str, Any]]:
     return diag_records
 
 
-# 得到相应任务的搜索结果，作为之后给LLM的context
-def get_searched_context_code(task: DevEvalTask, diag_record: Dict[str, Any]) -> list[Dict[str, Any]]:
-    task_namespace = task.namespace
-    preds = []
-    try:
-        if RAG_DATA_SOURCE == "bm25":
-            preds = diag_record["bm25_code"]["top15"]["predictions"]
-        elif RAG_DATA_SOURCE == "unixcoder":
-            preds = diag_record["unixcoder_code"]["top15"]["predictions"]
-        elif RAG_DATA_SOURCE == "feature":
-            preds = diag_record["feature"]["top3"]["predictions"]
-        elif RAG_DATA_SOURCE == "feature+bm25":
-            # 因为后续还要在初始搜索结果的基础上进行扩展和筛选，因此先选取top10的
-            preds = diag_record["hybrid"]["recall_top3_clusters"]["rank_top10"]["predictions"]
-        
-        # 过滤掉preds中method == task_namespace的项，也就是待补全的ground truth的代码
-        filtered_preds = [p for p in preds if (p['method'] if '(' not in p['method'] else p['method'].split('(')[0]) != task_namespace]
-        if len(filtered_preds) != len(preds):
-            print(f"Attention! {len(preds) - len(filtered_preds)} items filtered out for task {task_namespace}")
-        preds = filtered_preds
-    except KeyError:
-        print(f"Skipping task {task_namespace}: structure not matching data['feature']['top3']['predictions']")
-        return []
+def load_graph_result(task: DevEvalTask, graph_gml_path: str) -> list[Dict[str, Any]]:
+    """
+    Load a graph from a GML file and extract the 'sig', 'func_file', and 'method_code' attributes from each.
+    """
+    # 读取GML文件
+    G = nx.read_gml(graph_gml_path)
     
-    # 只要method的签名（完整版）
-    pred_signatures = [p['method'] for p in preds]
     context_code_list = []
-    for sig in pred_signatures:
-        # 从method csv中找到签名对应的method具体信息
-        if sig in method_sig_to_info:
-            csv_info = method_sig_to_info[sig]
-            context_code = {
-                'method_signature': str(csv_info.get('method_signature', '')),
-                'func_file': str(csv_info.get('func_file', '')),
-                'method_code': str(csv_info.get('method_code', '')),
-            }
-            context_code_list.append(context_code)
-        else:
-            print(f"Warning! Signature {sig} not found in methods csv")
-    
+
+    # 遍历所有节点
+    for node_id, attrs in G.nodes(data=True):
+        # 提取 'sig', 'func_file', 'method_code' 属性
+        sig = attrs.get("sig")
+        func_file = attrs.get("func_file")
+        method_code = attrs.get("method_code") # HTML 实体反转义（避免编码问题）
+        if isinstance(sig, str):
+            sig= html.unescape(sig)
+        if isinstance(func_file, str):
+            func_file = html.unescape(func_file)
+        if isinstance(method_code, str):
+            method_code = html.unescape(method_code)
+
+        context_code = {
+            'method_signature': sig,
+            'func_file': func_file,
+            'method_code': method_code,
+        }
+        context_code_list.append(context_code)
     return context_code_list
 
 
@@ -186,8 +174,6 @@ def generate_completions(
         timeout_s=timeout_s,
     )
 
-    diag_records = load_diagnostic_result(DIAGNOSTIC_JSONL)
-
     processed = 0
     recall_sum = 0.0
     recall_count = 0
@@ -195,14 +181,14 @@ def generate_completions(
     for record in iter_jsonl(filtered_path):
         task = parse_task(record)
 
-        diag_record = diag_records[processed]
 
         abs_file, signature = resolve_signature(
             source_code_dir, task.completion_path, task.signature_position
         )
 
-        # 获取该任务对应的代码搜索结果
-        searched_context_code_list = get_searched_context_code(task, diag_record)
+        # 获取该任务对应的代码搜索结果（以图的形式）
+        graph_gml_path = os.path.join(GRAPH_DIR_PATH, f"task_{processed + 1}_rank.gml")
+        searched_context_code_list = load_graph_result(task, graph_gml_path)
         print(f"code len: {len(searched_context_code_list)}")
         context_code_in_prompt = assemble_context_code_into_prompt(searched_context_code_list)
 

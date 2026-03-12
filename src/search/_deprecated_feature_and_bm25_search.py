@@ -11,7 +11,7 @@ import re
 from rank_bm25 import BM25Okapi
 from utils.query_refine import refine_query
 
-PROJECT_PATH = "System/mrjob"
+# PROJECT_PATH = "System/mrjob"
 # PROJECT_PATH = "Internet/boto"
 # PROJECT_PATH ="Database/alembic"
 # PROJECT_PATH = "Multimedia/Mopidy"

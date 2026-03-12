@@ -14,6 +14,7 @@ import torch
 sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
 
 from graph.embedding_backends import create_embedding_backend
+from graph.class_code_extract import *
 
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
@@ -32,6 +33,9 @@ ENABLE_EXTRA_EXPANDED_NODE_BONUS = True
 #   - "unixcoder": default, UniXcoder-based embeddings
 #   - "bge-code": use BAAI/bge-code-v1 via sentence-transformers
 EMBEDDING_BACKEND_KIND = "bge-code"
+
+# Set True to print class skeleton extraction preview (file, class, length, first lines)
+DEBUG_CLASS_SKELETON = False
 
 def load_methods_csv(csv_path):
     print("Loading METHODS_CSV...")
@@ -88,64 +92,6 @@ def load_enre_json(json_path):
     print(f"Loaded {len(valid_nodes)} valid nodes and {len(seen_edges)} valid edges from ENRE_JSON.")
     return valid_nodes, qname_to_id, id_to_qname, adj, reverse_adj
 
-def get_class_code(file_path, class_qname):
-    full_path = os.path.join(PROJECT_PATH, file_path.lstrip('/'))
-    if not os.path.exists(full_path):
-        # Try without lstrip if it was already absolute or relative differently
-        if os.path.exists(file_path):
-            full_path = file_path
-        else:
-            return ""
-            
-    try:
-        from tree_sitter import Language, Parser
-        import tree_sitter_python as tspython
-        
-        PY_LANGUAGE = Language(tspython.language())
-        parser = Parser(PY_LANGUAGE)
-        
-        with open(full_path, 'r') as f:
-            content = f.read()
-        
-        tree = parser.parse(bytes(content, "utf8"))
-        root_node = tree.root_node
-        
-        # Search for class definition matching class_qname
-        # Note: class_qname might be fully qualified (e.g. module.submodule.ClassName)
-        # But in the file, it is just "class ClassName..."
-        # We need to extract the short class name.
-        short_name = class_qname.split('.')[-1]
-        
-        # Simple DFS to find the class definition
-        def find_class_node(node, target_name):
-            if node.type == 'class_definition':
-                # Find name node
-                name_node = node.child_by_field_name('name')
-                if name_node and content[name_node.start_byte:name_node.end_byte] == target_name:
-                    return node
-            
-            for child in node.children:
-                res = find_class_node(child, target_name)
-                if res:
-                    return res
-            return None
-
-        target_node = find_class_node(root_node, short_name)
-        
-        if target_node:
-            return content[target_node.start_byte:target_node.end_byte]
-        else:
-            print(f"Class {short_name} not found in {full_path}")
-            return ""
-
-    except Exception as e:
-        print(f"Error extracting class code from {full_path}: {e}")
-        # Fallback: read file
-        try:
-            with open(full_path, 'r') as f:
-                return f.read()
-        except:
-            return ""
 
 def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
     for node in G.nodes():
@@ -263,7 +209,15 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
         src_node_info = valid_nodes[enre_id]
         qname = id_to_qname.get(enre_id, "")
         file_path = src_node_info.get('File', "")
-        class_code = get_class_code(file_path, qname) if file_path else ""
+        class_code = get_class_code_default(PROJECT_PATH, file_path, qname) if file_path else ""
+        if DEBUG_CLASS_SKELETON:
+            if class_code:
+                preview_lines = class_code.strip().split("\n")[:20]
+                preview = "\n".join(preview_lines)
+                print(f"[class_skeleton] file={file_path} class={qname} len={len(class_code)} chars")
+                print(f"  --- preview ---\n{preview}\n  ---")
+            else:
+                print(f"[class_skeleton] file={file_path} class={qname} -> empty (file missing or class not found)")
         class_nodes_to_add.append((key, {
             'sig': qname,
             'category': 'Class',
