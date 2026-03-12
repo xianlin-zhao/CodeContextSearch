@@ -17,10 +17,10 @@ PROJECT_DIR = "System/mrjob"
 # PROJECT_DIR = "Multimedia/Mopidy"
 # PROJECT_DIR = "Security/diffprivlib"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv" 
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json' 
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/features.csv"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+refined_queries_cache_path = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 # DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"

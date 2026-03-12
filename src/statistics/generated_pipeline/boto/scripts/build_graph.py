@@ -6,11 +6,11 @@ import os
 from collections import defaultdict
 
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/diagnostic_***feature.jsonl"    
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/filtered.jsonl"
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/diagnostic_***feature.jsonl"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/graph_results_***all"
 
 REMOVE_FIRST_DOT_PREFIX = False
 PREFIX = "mrjob"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀

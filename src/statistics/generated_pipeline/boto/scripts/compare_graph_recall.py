@@ -8,10 +8,10 @@ import pandas as pd
 from collections import defaultdict
 
 # Configuration
-GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all'
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/303_expand_graph_match_comparison_report.csv'
-ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json'
+GRAPH_RESULTS_DIR = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/graph_results_***all"
+FILTERED_JSONL_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/filtered.jsonl"
+OUTPUT_REPORT_FILE = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/303_expand_graph_match_comparison_report.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
 
 DEBUG = True
 DEBUG_LOG_FILE = os.path.join(os.path.dirname(OUTPUT_REPORT_FILE), "compare_graph_recall.debug.log")

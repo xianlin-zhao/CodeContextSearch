@@ -4,39 +4,23 @@ os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 import json
 import pandas as pd
 from typing import Any, Dict, Optional
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import re
 from rank_bm25 import BM25Okapi
 from utils.query_refine import refine_query
 
-PROJECT_PATH = "System/mrjob"
-# PROJECT_PATH = "Internet/boto"
-PROJECT_PATH ="Database/alembic"
-# PROJECT_PATH = "Multimedia/Mopidy"
-# PROJECT_PATH = "Security/diffprivlib"
-# PROJECT_PATH = "Security/diffprivlib"
+PROJECT_DIR = "System/mrjob"
+# PROJECT_DIR = "Internet/boto"
+# PROJECT_DIR ="Database/alembic"
+# PROJECT_DIR = "Multimedia/Mopidy"
+# PROJECT_DIR = "Security/diffprivlib"
+# PROJECT_DIR = "Security/diffprivlib"
 
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods.csv" 
-# METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/methods_with_desc.csv"
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl" 
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/refined_queries.json' 
-
-# FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/features.csv" 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv" 
-# METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods_with_desc.csv"
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
-# refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/refined_queries.json' 
-# ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
-
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv" 
-METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods_with_desc.csv"
-FILTERED_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/filtered.jsonl" 
-refined_queries_cache_path = '/data/zxl/Search2026/outputData/devEvalSearchOut/alembic/0303_full/refined_queries.json' 
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv" 
+METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods_with_desc.csv"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
+refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json' 
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 # DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 # 完整数据集jsonl路径
@@ -46,8 +30,6 @@ DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False
 USE_REFINED_QUERY = False
-TOP_KS = [1, 2, 3]#这个是控制 BM25方法和feature search方法中的similar_methods个数的
-CLUSTER_KS = [1, 3, 5]#这个是控制feature search方法的
 
 
 variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个变量，就认为成功
@@ -187,58 +169,18 @@ def compute_task_recall(
         "recall": recall,
     }
 
-def analyze_project(project_path):
+def analyze_project(project_dir):
     # Create output directory
-    # output_dir = project_path
+    # output_dir = project_dir
     # os.makedirs(output_dir, exist_ok=True)
     
-    # Step 1: Filter by project_path
+    # Step 1: Filter by project_dir
     with open(DATA_JSONL, 'r') as infile, open(FILTERED_PATH, 'w') as outfile:
         for line in infile:
             data = json.loads(line.strip())
-            if data.get('project_path') == project_path:
+            if data.get('project_path') == project_dir:
                 outfile.write(line)
     
-    # Step 2: Find similar clusters
-    df = pd.read_csv(
-        FEATURE_CSV,
-        dtype=str,
-        keep_default_na=False,
-        quoting=0,
-        engine="python",
-        on_bad_lines="skip"
-    )
-    clusters = df.groupby('id')['desc'].first().reset_index()
-    # 提取clusters中所有的method_name
-    method_names = df['method_name'].str.split('(').str[0].unique().tolist()
-
-    if NEED_METHOD_NAME_NORM:
-        # 规范化 method_name：去掉参数，只保留第一个点后的部分，例如 mrjob.hadoop.main -> hadoop.main
-        base_names = df['method_name'].astype(str).str.split('(').str[0]
-        df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
-        method_names = df['method_name_norm'].unique().tolist()
-    #print(method_names[:30])
-
-    method_norm_to_feature_id = {}
-    for fid, m in zip(df["id"].astype(str).tolist(), df["method_name"].astype(str).tolist()):
-        m_norm = _normalize_symbol(m)
-        if m_norm and m_norm not in method_norm_to_feature_id:
-            method_norm_to_feature_id[m_norm] = fid
-
-    # #model = SentenceTransformer('all-mpnet-base-v2')
-    # model = SentenceTransformer('all-MiniLM-L6-v2')
-    # 检查路径是否存在
-    model_path = "/data/data_public/riverbag/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf"
-
-    if os.path.exists(model_path):
-        print(f"找到本地模型: {model_path}")
-        model = SentenceTransformer(model_path)
-    else:
-        print(f"未找到本地模型，尝试下载...")
-        # 如果本地没有，再尝试从网络下载
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-    cluster_embeddings = model.encode(clusters['desc'].tolist())
-
     # load methods corpus
     methods_df = pd.read_csv(METHODS_CSV, dtype=str).fillna('')
     # ensure columns exist
@@ -267,13 +209,13 @@ def analyze_project(project_path):
         return toks
 
     signature_docs = [tokenize_signature(s) for s in methods_df['method_signature'].tolist()]
-    print(signature_docs[:10])
-    print("=======================================")
+    # print(signature_docs[:10])
+    # print("=======================================")
     code_docs = [tokenize_code(c) for c in methods_df['method_code'].tolist()]
-    print(code_docs[:10])
-    print("=======================================")
+    # print(code_docs[:10])
+    # print("=======================================")
     desc_docs = [tokenize_text(d) for d in methods_desc_df['func_desc'].tolist()]
-    print(desc_docs[:10])
+    # print(desc_docs[:10])
     # store the original method strings to return as predicted items
     methods_corpus_strings = methods_df['method_signature'].tolist()
     # 这里其实methods_desc_df['func_fullName']和methods_df['method_signature']是一样的，但是为了防止不一样的情况，这里还是给他进行了单独拎出来
@@ -355,27 +297,16 @@ def analyze_project(project_path):
 
     with open(FILTERED_PATH, 'r') as f:
         example_counter = 0
-        feature_records = []
         sig_records = []
         code_records = []
         desc_records = []
         top_gt = 0
-
-        cluster_metrics = {k: {"match": 0, "pred": 0} for k in CLUSTER_KS}
 
         sig_ks = [5, 10, 15 ,20]
         sig_metrics = {k: {"match": 0, "pred": 0} for k in sig_ks}
 
         code_metrics = {k: {"match": 0, "pred": 0} for k in sig_ks}
         desc_metrics = {k: {"match": 0, "pred": 0} for k in sig_ks}
-
-        def methods_from_top_k_clusters(similarities, k):
-            idx = np.argsort(similarities)[-k:][::-1]
-            ids = clusters.iloc[idx]["id"].tolist()
-            methods = []
-            for cid in ids:
-                methods.extend(df[df["id"] == cid]["method_name"].tolist())
-            return methods
 
         def bm25_topk_strings(order, k, corpus_strings):
             idx = order[-k:][::-1]
@@ -386,57 +317,6 @@ def analyze_project(project_path):
             data = json.loads(line.strip())
             deps = []
             target_method = data.get("namespace") or ""
-            target_method_norm = _normalize_symbol(target_method)
-            target_feature_id = method_norm_to_feature_id.get(target_method_norm)
-            if target_feature_id is None:
-                target_method_with_init = _maybe_insert_init_in_target_method(target_method_norm)
-                if target_method_with_init != target_method_norm:
-                    target_feature_id = method_norm_to_feature_id.get(target_method_with_init)
-            target_feature_other_methods = []
-            if target_feature_id is not None:
-                target_feature_methods = (
-                    df.loc[df["id"].astype(str) == str(target_feature_id), "method_name"]
-                    .astype(str)
-                    .tolist()
-                )
-                target_feature_other_methods = [
-                    _normalize_symbol(m) for m in target_feature_methods if _normalize_symbol(m) != target_method_norm
-                ]
-
-            target_method_sig = resolve_method_signature(target_method)
-            target_method_code = method_sig_to_code.get(target_method_sig, "")
-            if not target_method_code:
-                target_method_with_init = _maybe_insert_init_in_target_method(target_method_norm)
-                if target_method_with_init != target_method_norm:
-                    target_method_sig_with_init = resolve_method_signature(target_method_with_init)
-                    target_method_code = method_sig_to_code.get(target_method_sig_with_init, "")
-                    if target_method_code:
-                        target_method_sig = target_method_sig_with_init
-            similar_methods = {}
-            target_code_tokens = tokenize_code(target_method_code) if target_method_code else []
-            if target_code_tokens:
-                target_code_scores = bm25_code.get_scores(target_code_tokens)
-                target_code_order = np.argsort(target_code_scores)
-                target_method_norm = _normalize_symbol(target_method)
-                for k in TOP_KS:
-                    k_int = int(k)
-                    selected = []
-                    seen = set()
-                    for idx in target_code_order[::-1]:
-                        m = methods_corpus_strings[int(idx)]
-                        m_norm = _normalize_symbol(m)
-                        if m_norm == target_method_norm:
-                            continue
-                        if m_norm in seen:
-                            continue
-                        selected.append(m_norm)
-                        seen.add(m_norm)
-                        if len(selected) >= k_int:
-                            break
-                    similar_methods[f"top{k_int}"] = selected
-            else:
-                for k in TOP_KS:
-                    similar_methods[f"top{int(k)}"] = []
             #从数据中提取真实的依赖关系( dependency )，这些是本次搜索的“正确答案”
             deps.extend(data['dependency']['intra_class'])
             deps.extend(data['dependency']['intra_file'])
@@ -449,14 +329,13 @@ def analyze_project(project_path):
             #将本条测试数据的正确答案数量累加到总数中
             top_gt += len(deps)
 
-            # feature-based search
             original_query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
             #print("original query: ", original_query)
 
             if USE_REFINED_QUERY:
                 if original_query in refined_queries_cache:
                     query = refined_queries_cache[original_query]
-                    print("found in cache")
+                    # print("found in cache")
                 else:
                     modelname = "deepseek-v3"
                     query = refine_query(original_query, modelname)
@@ -464,19 +343,10 @@ def analyze_project(project_path):
                     # 关键：添加后立即保存！
                     with open(refined_queries_cache_path, 'w') as f:
                         json.dump(refined_queries_cache, f, indent=2)
-                print("refined query: ", query)
+                # print("refined query: ", query)
             else:
                 query = original_query
-                print("Using original query: ", query)
-            #input("please confirm the query!")
-            query_embedding = model.encode([query])
-            similarities = cosine_similarity(query_embedding, cluster_embeddings)[0]
-
-            for k in CLUSTER_KS:
-                methods_k = methods_from_top_k_clusters(similarities, k)
-                methods_k = filter_out_target_method(methods_k, target_method)
-                cluster_metrics[k]["pred"] += len(methods_k)
-                cluster_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(methods_k))["dependency_hit"]
+                # print("Using original query: ", query)
 
             # signature-based search using BM25
             q_tokens = re.findall(r'\w+', query.lower())
@@ -505,49 +375,6 @@ def analyze_project(project_path):
                 m = filter_out_target_method(m, target_method)
                 desc_metrics[k]["pred"] += len(m)
                 desc_metrics[k]["match"] += compute_task_recall(deps, build_context_code_list(m))["dependency_hit"]
-
-            feature_record = {
-                "example_id": example_counter,
-                "query": query,
-                "target_method": target_method,
-                "similar_methods": similar_methods,
-                "target_feature_id": target_feature_id,
-                "target_feature_other_methods": target_feature_other_methods,
-                "ground_truth": deps,
-                "feature": {}
-            }
-            for k in CLUSTER_KS:
-                mk = methods_from_top_k_clusters(similarities, k)
-                mk = filter_out_target_method(mk, target_method)
-                num_pred = len(mk)
-                recall_info = compute_task_recall(deps, build_context_code_list(mk))
-                num_match = int(recall_info["dependency_hit"])
-                num_gt = int(recall_info["dependency_total"])
-                precision = (num_match / num_pred) if num_pred > 0 else 0
-                recall = float(recall_info["recall"]) if recall_info["recall"] is not None else 0
-                f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-                feature_record["feature"][f"top{k}"] = {
-                    "metrics": {
-                        "P": precision,
-                        "R": recall,
-                        "F1": f1,
-                        "pred": num_pred,
-                        "match": num_match,
-                        "gt": num_gt
-                    },
-                    "predictions": [
-                        {
-                            "method": m,
-                            "match": is_method_hit(
-                                resolve_method_signature(m),
-                                method_sig_to_code.get(resolve_method_signature(m), ""),
-                                deps,
-                            ),
-                        }
-                        for m in mk
-                    ]
-                }
-            feature_records.append(feature_record)
 
             sig_record = {
                 "example_id": example_counter,
@@ -659,13 +486,9 @@ def analyze_project(project_path):
             desc_records.append(desc_record)
 
         out_dir = os.path.dirname(FILTERED_PATH)
-        feature_path = os.path.join(out_dir, "diagnostic_feature.jsonl")
         sig_path = os.path.join(out_dir, "diagnostic_bm25_signature.jsonl")
         code_path = os.path.join(out_dir, "diagnostic_bm25_code.jsonl")
         desc_path = os.path.join(out_dir, "diagnostic_bm25_desc.jsonl")
-        with open(feature_path, "w", encoding="utf-8") as fo:
-            for rec in feature_records:
-                fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
         with open(sig_path, "w", encoding="utf-8") as so:
             for rec in sig_records:
                 so.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -683,18 +506,6 @@ def analyze_project(project_path):
         # ===================== DIAGNOSTIC JSON CODE END =====================
         def safe_div(a, b):
             return (a / b) if b != 0 else 0
-
-        for k in CLUSTER_KS:
-            m = cluster_metrics[k]["match"]
-            p = cluster_metrics[k]["pred"]
-            print(f"Top {k} Match: {m}")
-            print(f"Top {k} Pred: {p}")
-            print(f"Top {k} P={(safe_div(m, p))*100:.2f}%")
-            print(f"Top {k} R={(safe_div(m, top_gt))*100:.2f}%")
-            denom = safe_div(m, p) + safe_div(m, top_gt)
-            f1_val = (2 * safe_div(m, p) * safe_div(m, top_gt) / denom) if denom > 0 else 0
-            print(f"Top {k} F1={f1_val*100:.2f}%")
-            print("--------------------------------")
 
         # ---- print BM25 signature-based metrics ----
         print("BM25 (signature) results:")
@@ -727,8 +538,8 @@ def analyze_project(project_path):
             print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%, F1={f1_val*100:.2f}%")
         print("--------------------------------")
     
-    print(f"Analysis completed for {project_path}")
+    print(f"Analysis completed for {project_dir}")
 
 
 if __name__ == "__main__":
-    analyze_project(PROJECT_PATH)
+    analyze_project(PROJECT_DIR)
