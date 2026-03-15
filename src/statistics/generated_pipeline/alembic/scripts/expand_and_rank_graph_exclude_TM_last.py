@@ -14,22 +14,15 @@ import torch
 sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
 
 from graph.embedding_backends import create_embedding_backend
-from graph.class_code_extract import *
 
-# METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/methods.csv"
-# ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/boto-report-enre.json"
-# FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/boto/filtered.jsonl"
-# OUTPUT_GRAPH_PATH = "/data/zxl/Search2026/outputData/devEvalSearchOut/Internet_boto/0115/graph_results"
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet"
-
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
-OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all"
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/alembic-report-enre.json"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/filtered.jsonl"
+OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/alembic/graph_results_***all"
+PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database"
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database"  #alembic
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
+#PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
 # PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #modipy
 TOP_KS = [10, 15, 20]
 
@@ -39,9 +32,6 @@ ENABLE_EXTRA_EXPANDED_NODE_BONUS = True
 #   - "unixcoder": default, UniXcoder-based embeddings
 #   - "bge-code": use BAAI/bge-code-v1 via sentence-transformers
 EMBEDDING_BACKEND_KIND = "bge-code"
-
-# Set True to print class skeleton extraction preview (file, class, length, first lines)
-DEBUG_CLASS_SKELETON = False
 
 def load_methods_csv(csv_path):
     print("Loading METHODS_CSV...")
@@ -98,39 +88,66 @@ def load_enre_json(json_path):
     print(f"Loaded {len(valid_nodes)} valid nodes and {len(seen_edges)} valid edges from ENRE_JSON.")
     return valid_nodes, qname_to_id, id_to_qname, adj, reverse_adj
 
+def get_class_code(file_path, class_qname):
+    full_path = os.path.join(PROJECT_PATH, file_path.lstrip('/'))
+    if not os.path.exists(full_path):
+        # Try without lstrip if it was already absolute or relative differently
+        if os.path.exists(file_path):
+            full_path = file_path
+        else:
+            return ""
+            
+    try:
+        from tree_sitter import Language, Parser
+        import tree_sitter_python as tspython
+        
+        PY_LANGUAGE = Language(tspython.language())
+        parser = Parser(PY_LANGUAGE)
+        
+        with open(full_path, 'r') as f:
+            content = f.read()
+        
+        tree = parser.parse(bytes(content, "utf8"))
+        root_node = tree.root_node
+        
+        # Search for class definition matching class_qname
+        # Note: class_qname might be fully qualified (e.g. module.submodule.ClassName)
+        # But in the file, it is just "class ClassName..."
+        # We need to extract the short class name.
+        short_name = class_qname.split('.')[-1]
+        
+        # Simple DFS to find the class definition
+        def find_class_node(node, target_name):
+            if node.type == 'class_definition':
+                # Find name node
+                name_node = node.child_by_field_name('name')
+                if name_node and content[name_node.start_byte:name_node.end_byte] == target_name:
+                    return node
+            
+            for child in node.children:
+                res = find_class_node(child, target_name)
+                if res:
+                    return res
+            return None
+
+        target_node = find_class_node(root_node, short_name)
+        
+        if target_node:
+            return content[target_node.start_byte:target_node.end_byte]
+        else:
+            print(f"Class {short_name} not found in {full_path}")
+            return ""
+
+    except Exception as e:
+        print(f"Error extracting class code from {full_path}: {e}")
+        # Fallback: read file
+        try:
+            with open(full_path, 'r') as f:
+                return f.read()
+        except:
+            return ""
 
 def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
-    def normalize_sig(sig):
-        s = "" if sig is None else str(sig)
-        base = s.split("(", 1)[0] if "(" in s else s
-        return base.lstrip(".")
-
-    target_method_sig = normalize_sig(G.graph.get("target_method", ""))
-    target_method_enre_ids = set()
-    if target_method_sig:
-        for _eid, _qname in id_to_qname.items():
-            if normalize_sig(_qname) == target_method_sig:
-                target_method_enre_ids.add(_eid)
-
-        if target_method_enre_ids:
-            nodes_to_remove = []
-            for node_id, node_data in list(G.nodes(data=True)):
-                enre_id = None
-                try:
-                    enre_id = int(node_id)
-                except Exception:
-                    enre_id = None
-
-                if enre_id is not None and enre_id in target_method_enre_ids:
-                    nodes_to_remove.append(node_id)
-                    continue
-
-                if normalize_sig(node_data.get("sig", "")) == target_method_sig:
-                    nodes_to_remove.append(node_id)
-
-            if nodes_to_remove:
-                G.remove_nodes_from(nodes_to_remove)
-
     for node in G.nodes():
         if 'src_type' not in G.nodes[node]:
             G.nodes[node]['src_type'] = 'original'
@@ -172,15 +189,10 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
     added_node_keys = set()
 
     def ensure_function_node(enre_id):
-        if target_method_enre_ids and enre_id in target_method_enre_ids:
-            return None
         key = node_key_for_enre_id(enre_id)
         if key in G.nodes or key in added_node_keys:
             return key
         qname = id_to_qname.get(enre_id, "")
-        if target_method_sig and normalize_sig(qname) == target_method_sig:
-            target_method_enre_ids.add(enre_id)
-            return None
         method_info = get_method_info(qname)
         nodes_to_add.append((key, {
             'sig': qname,
@@ -211,11 +223,7 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
                     continue
                 if dest_id not in valid_nodes or valid_nodes[dest_id].get('category') != 'Function':
                     continue
-                if target_method_enre_ids and dest_id in target_method_enre_ids:
-                    continue
                 dest_key = ensure_function_node(dest_id)
-                if dest_key is None:
-                    continue
                 edges_to_add.append((src_key, dest_key, {'kind': kind}))
 
         if enre_id in reverse_adj:
@@ -224,11 +232,7 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
                     continue
                 if caller_id not in valid_nodes or valid_nodes[caller_id].get('category') != 'Function':
                     continue
-                if target_method_enre_ids and caller_id in target_method_enre_ids:
-                    continue
                 caller_key = ensure_function_node(caller_id)
-                if caller_key is None:
-                    continue
                 edges_to_add.append((caller_key, src_key, {'kind': kind}))
 
     for n, attr in nodes_to_add:
@@ -259,15 +263,7 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
         src_node_info = valid_nodes[enre_id]
         qname = id_to_qname.get(enre_id, "")
         file_path = src_node_info.get('File', "")
-        class_code = get_class_code_default(PROJECT_PATH, file_path, qname) if file_path else ""
-        if DEBUG_CLASS_SKELETON:
-            if class_code:
-                preview_lines = class_code.strip().split("\n")[:20]
-                preview = "\n".join(preview_lines)
-                print(f"[class_skeleton] file={file_path} class={qname} len={len(class_code)} chars")
-                print(f"  --- preview ---\n{preview}\n  ---")
-            else:
-                print(f"[class_skeleton] file={file_path} class={qname} -> empty (file missing or class not found)")
+        class_code = get_class_code(file_path, qname) if file_path else ""
         class_nodes_to_add.append((key, {
             'sig': qname,
             'category': 'Class',
@@ -280,8 +276,6 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
         return key
 
     for func_enre_id in all_function_enre_ids:
-        if target_method_enre_ids and func_enre_id in target_method_enre_ids:
-            continue
         func_key = node_key_for_enre_id(func_enre_id)
         if func_enre_id not in reverse_adj:
             continue
@@ -346,6 +340,17 @@ def process_graph_dir(
         if isinstance(v, str):
             return v.strip().lower() in {"true", "1", "yes", "y"}
         return False
+
+    def normalize_sig(sig):
+        s = "" if sig is None else str(sig)
+        base = s.split("(", 1)[0] if "(" in s else s
+        return base.lstrip(".")
+
+    def safe_int(x):
+        try:
+            return int(x)
+        except Exception:
+            return None
 
     for i, task in enumerate(tasks):
         task_id = task.get('example_id', i + 1)
@@ -485,11 +490,34 @@ def process_graph_dir(
         if not top_ks:
             top_ks = [15]
 
+        target_method_sig = normalize_sig(expanded_G.graph.get("target_method", G.graph.get("target_method", "")))
+        target_method_enre_ids = set()
+        if target_method_sig:
+            for _eid, _qname in id_to_qname.items():
+                if normalize_sig(_qname) == target_method_sig:
+                    target_method_enre_ids.add(_eid)
+
+        excluded_nodes = set()
+        if target_method_sig or target_method_enre_ids:
+            for node_id, node_data in expanded_G.nodes(data=True):
+                enre_id = safe_int(node_id)
+                if enre_id is not None and enre_id in target_method_enre_ids:
+                    excluded_nodes.add(node_id)
+                    continue
+                if target_method_sig and normalize_sig(node_data.get("sig", "")) == target_method_sig:
+                    excluded_nodes.add(node_id)
+
+        if excluded_nodes:
+            print(
+                f"  -> Excluding target_method from saved subgraphs: target_method={target_method_sig} excluded_nodes={len(excluded_nodes)}",
+                flush=True,
+            )
+
         sorted_nodes = sorted(ppr_scores.items(), key=lambda x: x[1], reverse=True)
         rank_gml_filename = f"task_{task_id}_rank.gml"
 
         for K in top_ks:
-            top_k_nodes = [n for n, _ in sorted_nodes[:K]]
+            top_k_nodes = [n for n, _ in sorted_nodes if n not in excluded_nodes][:K]
 
             subgraph = expanded_G.subgraph(top_k_nodes).copy()
 

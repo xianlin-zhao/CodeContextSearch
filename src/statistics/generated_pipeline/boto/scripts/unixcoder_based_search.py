@@ -9,10 +9,10 @@ from typing import Any, Dict, Optional
 from search_models.unixcoder import UniXcoder
 from utils.query_refine import refine_query
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv" 
-FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json'
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv"
+FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/filtered.jsonl"
+refined_queries_cache_path = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/refined_queries.json"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False

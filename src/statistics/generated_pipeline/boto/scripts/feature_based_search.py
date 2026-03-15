@@ -11,21 +11,21 @@ import re
 from rank_bm25 import BM25Okapi
 from utils.query_refine import refine_query
 
-PROJECT_DIR = "System/mrjob"
+PROJECT_DIR = "Internet/boto"
 # PROJECT_DIR = "Internet/boto"
 # PROJECT_DIR ="Database/alembic"
 # PROJECT_DIR = "Multimedia/Mopidy"
 # PROJECT_DIR = "Security/diffprivlib"
 
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv" 
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json' 
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/features.csv"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/methods.csv"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/filtered.jsonl"
+refined_queries_cache_path = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/refined_queries.json"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/boto/boto-report-enre.json"
 # DevEval数据集case的路径（json，不是数据集项目本身）
 # DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
-TOP_SM = [1, 2, 3] #控制相似的methods的数量
+TOP_SM = [1, 2, 3]#控制相似的methods的数量
 CLUSTER_KS = [1, 3]
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评

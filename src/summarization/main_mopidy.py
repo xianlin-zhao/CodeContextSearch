@@ -209,12 +209,12 @@ if __name__ == "__main__":
     # 待总结的项目路径
     # project_root = "/data/data_public/riverbag/Datasets/DevEval/boto"
     # project_root = "/data/data_public/riverbag/Datasets/DevEval/mopidy"
-    project_root = "/data/data_public/riverbag/Datasets/DevEval/diffprivlib"
+    project_root = "/data/data_public/riverbag/Datasets/DevEval/mingus"
     # project_root = "/data/data_public/riverbag/Datasets/DevEval/mrjob"
     # project_root = "/data/data_public/riverbag/Datasets/DevEval/alembic"
     # repoSummary结果的保存路径
     # output_dir = os.path.join(here, "out/boto")
-    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/211/diffprivlib"
+    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/211/mingus"
     # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/newTry"
     # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40"
     main(

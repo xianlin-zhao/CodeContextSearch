@@ -8,8 +8,8 @@ from collections import defaultdict
 
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/diagnostic_***feature.jsonl"    
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/diagnostic_***feature.jsonl"
 OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all"
 
 REMOVE_FIRST_DOT_PREFIX = False
