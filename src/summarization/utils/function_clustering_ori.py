@@ -219,23 +219,6 @@ def _minmax(xs: List[float]) -> Tuple[np.ndarray, float, float]:
         return np.zeros_like(arr), vmin, vmax
     return (arr - vmin) / (vmax - vmin), vmin, vmax
 
-def dynamic_knn_k_by_module_size(
-    m_funcs: int,
-    alpha: float = 2.5,
-    min_k: int = 3,
-    max_k: int = 30,
-    hard_cap: Optional[int] = None
-) -> int:
-    if m_funcs <= 1:
-        return 0
-    k_raw = int(np.floor(alpha * np.sqrt(m_funcs)))
-    upper = m_funcs - 1
-    if hard_cap is not None and hard_cap > 0:
-        upper = min(upper, int(hard_cap))
-    lower = max(1, min(int(min_k), upper))
-    upper = max(lower, min(int(max_k), upper))
-    return int(np.clip(k_raw, lower, upper))
-
 @dataclass
 class ModuleBestResult:
     module_cluster_id: Any
@@ -270,14 +253,7 @@ def evaluate_module_and_pick_best(
     objective: str = "CPM",
     consensus_tau: float = 0.6,
     consensus_gamma: float = 0.1,
-    rng_seed: int = 2025,
-    dynamic_knn: bool = True,
-    dynamic_knn_alpha: float = 2.5,
-    dynamic_knn_min_k: int = 3,
-    dynamic_knn_max_k: int = 30,
-    target_avg_cluster_size_min: float = 2.0,
-    target_avg_cluster_size_max: float = 10.0,
-    w_pen_target_size: float = 0.30
+    rng_seed: int = 2025
 ) -> ModuleBestResult:
     funcs = getattr(method_cluster, "cluster_func_list", None)
     module_cluster_id = getattr(method_cluster, "cluster_id", None)
@@ -297,19 +273,8 @@ def evaluate_module_and_pick_best(
     W = fuse_weights_func(S, L, a=weight_parameter)
 
     # 2) 稀疏化
-    effective_knn_k = 0
     if use_knn:
-        if dynamic_knn:
-            effective_knn_k = dynamic_knn_k_by_module_size(
-                m_funcs=m,
-                alpha=dynamic_knn_alpha,
-                min_k=dynamic_knn_min_k,
-                max_k=dynamic_knn_max_k,
-                hard_cap=knn_k
-            )
-        else:
-            effective_knn_k = max(1, min(int(knn_k), m - 1))
-        W = sparsify_knn(W, k=effective_knn_k)
+        W = sparsify_knn(W, k=knn_k)
     if use_threshold and threshold_tau > 0:
         W = sparsify_threshold(W, tau=threshold_tau)
     np.fill_diagonal(W, 0.0)
@@ -390,23 +355,12 @@ def evaluate_module_and_pick_best(
     n_DSTD, _, _ = _minmax(dstd_arr)
     sizecv_penalty = np.clip((np.array(SIZECV) - 1.0) / 1.0, 0, 1)
 
-    ncls_arr = np.maximum(np.array(NCLS, dtype=float), 1e-12)
-    avg_cluster_size = n / ncls_arr
-    if m <= 3:
-        target_size_penalty = np.zeros_like(avg_cluster_size)
-    else:
-        tgt_lo = max(1.0, float(target_avg_cluster_size_min))
-        tgt_hi = max(tgt_lo, float(target_avg_cluster_size_max))
-        too_small = np.clip((tgt_lo - avg_cluster_size) / tgt_lo, 0, 1)
-        too_large = np.clip((avg_cluster_size - tgt_hi) / tgt_hi, 0, 1)
-        target_size_penalty = np.clip(too_small + too_large, 0, 1)
-
     w_stab = 0.45
     w_sep  = 0.45
     w_sil  = 0
-    w_pen_small = 0.30
-    w_pen_over  = 0.0   # 设置为 0，取消旧的过度聚类惩罚
-    w_pen_under = 0.0   # 设置为 0，取消旧的聚类不足惩罚
+    w_pen_small = 0.40
+    w_pen_over  = 0.20
+    w_pen_under = 0.10
     w_pen_sizecv= 0.20
     w_pen_dstd  = 0.15
 
@@ -418,8 +372,7 @@ def evaluate_module_and_pick_best(
            + w_pen_over * over_penalty
            + w_pen_under * under_penalty
            + w_pen_sizecv * sizecv_penalty
-              + w_pen_dstd * n_DSTD
-              + w_pen_target_size * target_size_penalty)
+           + w_pen_dstd * n_DSTD)
     )
 
     for i, r in enumerate(all_results):
@@ -450,10 +403,7 @@ def evaluate_module_and_pick_best(
         mean_singleton_frac=float(best_stats["mean_singleton_frac"]),
         mean_tiny_frac=float(best_stats["mean_tiny_frac"]),
         mean_size_cv=float(best_stats["mean_size_cv"]),
-        notes=(
-            "no global cluster-count constraint; per-module resolution selected by combined score; "
-            f"effective_knn_k={effective_knn_k}; target_avg_cluster_size=[{target_avg_cluster_size_min}, {target_avg_cluster_size_max}]"
-        )
+        notes="no global cluster-count constraint; per-module resolution selected by combined score"
     )
 
 def cluster_all_functions_to_features(
@@ -475,14 +425,7 @@ def cluster_all_functions_to_features(
     consensus_tau: float = 0.6,
     consensus_gamma: float = 0.1,
     rng_seed: int = 2025,
-    target_total_features: Optional[int] = None,
-    dynamic_knn: bool = True,
-    dynamic_knn_alpha: float = 2.5,
-    dynamic_knn_min_k: int = 3,
-    dynamic_knn_max_k: int = 30,
-    target_avg_cluster_size_min: float = 2.0,
-    target_avg_cluster_size_max: float = 8.0,
-    w_pen_target_size: float = 0.30
+    target_total_features: Optional[int] = None
 ) -> Tuple[List[Feature], Dict[str, Any]]:
     feature_list: List[Feature] = []
     per_module_summaries: List[Dict[str, Any]] = []
@@ -499,14 +442,7 @@ def cluster_all_functions_to_features(
             use_silhouette=use_silhouette, silhouette_sample_size=silhouette_sample_size,
             objective=objective,
             consensus_tau=consensus_tau, consensus_gamma=consensus_gamma,
-            rng_seed=rng_seed,
-            dynamic_knn=dynamic_knn,
-            dynamic_knn_alpha=dynamic_knn_alpha,
-            dynamic_knn_min_k=dynamic_knn_min_k,
-            dynamic_knn_max_k=dynamic_knn_max_k,
-            target_avg_cluster_size_min=target_avg_cluster_size_min,
-            target_avg_cluster_size_max=target_avg_cluster_size_max,
-            w_pen_target_size=w_pen_target_size
+            rng_seed=rng_seed
         )
         
         W = fuse_weights_func(

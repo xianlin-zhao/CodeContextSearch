@@ -1,6 +1,7 @@
 import time
 import json
 import random
+import re
 from pydantic import BaseModel, ValidationError
 from typing import Any, Dict, List
 from openai import OpenAI
@@ -166,7 +167,11 @@ def clean_json_text(text: str) -> str:
 
 def parse_usecase_payload(json_str: str) -> Dict[str, Any]:
     raw = clean_json_text(json_str)
-    data = json.loads(raw)
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = parse_usecase_payload_relaxed(raw)
 
     if "description" in data and not isinstance(data["description"], str):
         data["description"] = normalize_to_str(data["description"])
@@ -181,8 +186,53 @@ def parse_usecase_payload(json_str: str) -> Dict[str, Any]:
 
     return data
 
-def process_feature(feature, modelname):
-    while feature.feature_desc == "":
+
+def parse_usecase_payload_relaxed(text: str) -> Dict[str, Any]:
+    """Parse partially malformed JSON-like text by key boundaries.
+
+    This is used when model output contains invalid JSON (e.g. unterminated strings)
+    but still roughly follows the target key layout.
+    """
+    def _extract_between_keys(src: str, key: str, next_keys: List[str]) -> str:
+        key_match = re.search(rf'"{re.escape(key)}"\s*:', src)
+        if not key_match:
+            return ""
+
+        value_start = key_match.end()
+        value_end = len(src)
+        for next_key in next_keys:
+            next_match = re.search(rf',\s*"{re.escape(next_key)}"\s*:', src[value_start:])
+            if next_match:
+                candidate_end = value_start + next_match.start()
+                if candidate_end < value_end:
+                    value_end = candidate_end
+        raw_val = src[value_start:value_end].strip().rstrip(",")
+
+        if raw_val.startswith('"') and raw_val.endswith('"') and len(raw_val) >= 2:
+            raw_val = raw_val[1:-1]
+
+        raw_val = (
+            raw_val
+            .replace('\\n', '\n')
+            .replace('\\t', '\t')
+            .replace('\\"', '"')
+            .replace('\\\\', '\\')
+        )
+        return raw_val.strip()
+
+    return {
+        "description": _extract_between_keys(text, "description", ["flow", "notf"]),
+        "flow": _extract_between_keys(text, "flow", ["notf"]),
+        "notf": _extract_between_keys(text, "notf", []),
+    }
+
+
+def process_feature(feature, modelname, max_attempts: int = 5) -> Dict[str, Any]:
+    attempts = 0
+    had_error = False
+    last_error = ""
+    while feature.feature_desc == "" and attempts < max_attempts:
+        attempts += 1
         code = ""
         for function in feature.feature_func_list:
             code += (
@@ -207,52 +257,75 @@ def process_feature(feature, modelname):
             feature.feature_flow = result.flow
             feature.feature_notf = result.notf
         except Exception as e:
-            print(f"Feature ID: {feature.feature_id} 错误: {e}")
-    print(f"Feature ID: {feature.feature_id}, Description: {feature.feature_desc}")
+            had_error = True
+            last_error = str(e)
+            print(f"Feature ID: {feature.feature_id} 第{attempts}/{max_attempts}次错误: {e}")
 
-def generate_feature_description_parallel(feature_list, modelname:str, max_workers=8):
+    used_fallback = False
+    if feature.feature_desc == "":
+        # 兜底，防止单个特征因模型输出异常而无限卡住整批任务
+        feature.feature_desc = f"Feature {feature.feature_id} (fallback)"
+        feature.feature_flow = ""
+        feature.feature_notf = ""
+        used_fallback = True
+        print(f"Feature ID: {feature.feature_id} 超过最大重试次数，已使用兜底描述")
+
+    print(f"Feature ID: {feature.feature_id}, Description: {feature.feature_desc}")
+    return {
+        "feature_id": feature.feature_id,
+        "attempts": attempts,
+        "had_error": had_error,
+        "used_fallback": used_fallback,
+        "last_error": last_error,
+    }
+
+def generate_feature_description_parallel(feature_list, modelname:str, max_workers=8) -> Dict[str, Any]:
     # 初始化特征描述
     for feature in feature_list: 
         feature.feature_desc = ""
+
+    failed_feature_ids = []
+    fallback_feature_ids = []
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_feature, feature, modelname) for feature in feature_list]
         concurrent.futures.wait(futures)
 
-def generate_feature_description(feature_list: List[Feature], modelname: str):
+    for fut in futures:
+        result = fut.result()
+        if result.get("had_error"):
+            failed_feature_ids.append(result.get("feature_id"))
+        if result.get("used_fallback"):
+            fallback_feature_ids.append(result.get("feature_id"))
+
+    return {
+        "failed_feature_ids": sorted(failed_feature_ids),
+        "failed_feature_count": len(failed_feature_ids),
+        "fallback_feature_ids": sorted(fallback_feature_ids),
+        "fallback_feature_count": len(fallback_feature_ids),
+    }
+
+def generate_feature_description(feature_list: List[Feature], modelname: str) -> Dict[str, Any]:
     # 初始化特征描述
     for feature in feature_list: 
         feature.feature_desc = ""
 
+    failed_feature_ids = []
+    fallback_feature_ids = []
+
     for feature in feature_list:
-        while feature.feature_desc == "":
-            code = ""
-            for function in feature.feature_func_list:
-                code += f"function name:{function.func_fullName}\nfunction code:{function.func_code}\n"
-            prompt = userstory_prompt.format(code_content=code)
-            try:
-                response = call_with_retry(lambda: get_client().chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=modelname,
-                    response_format={"type": "json_object"},
-                    temperature=0.3,
-                    top_p=0.95,
-                    frequency_penalty=0.5,
-                    presence_penalty=0.2
-                ))
-                json_str = response.choices[0].message.content or ""
-                data = parse_usecase_payload(json_str)
-                result = usecase.model_validate(data)
-                feature.feature_desc = result.description
-                feature.feature_flow = result.flow
-                feature.feature_notf = result.notf
-            except json.JSONDecodeError as e:
-                print(f"JSON解析失败: {e}\nRaw: {json_str}")
-            except ValidationError as e:
-                print(f"Pydantic验证失败: {e}\nRaw: {json_str}\nParsed: {data}")
-            except Exception as e:
-                print(f"其他错误: {e}")
-            print(f"Feature ID: {feature.feature_id}, Description: {feature.feature_desc}")
+        result = process_feature(feature, modelname)
+        if result.get("had_error"):
+            failed_feature_ids.append(result.get("feature_id"))
+        if result.get("used_fallback"):
+            fallback_feature_ids.append(result.get("feature_id"))
+
+    return {
+        "failed_feature_ids": sorted(failed_feature_ids),
+        "failed_feature_count": len(failed_feature_ids),
+        "fallback_feature_ids": sorted(fallback_feature_ids),
+        "fallback_feature_count": len(fallback_feature_ids),
+    }
 
 def merge_features_by_method_cluster(features: List[Feature], method_clusters: List[method_Cluster], modelname: str):
     merged_features_des = []

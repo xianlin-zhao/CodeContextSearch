@@ -27,6 +27,7 @@ GENERATE_DESCRIPTION = True
 
 
 def main(project_root: str, output_dir: str):
+    os.makedirs(output_dir, exist_ok=True)
     # 可选择本地地址或者网页地址（github地址），这里使用本地地址
     if(project_root.startswith("http")):
         print("使用网页地址")
@@ -45,11 +46,25 @@ def main(project_root: str, output_dir: str):
             exit_code = os.system(f"git clone {project_root} {repo_path}")
             if exit_code != 0:
                 print(f"错误: Git clone 失败 (退出码: {exit_code})")
-                return
+                return {
+                    "project_root": project_root,
+                    "output_dir": output_dir,
+                    "status": "failed",
+                    "reason": f"git clone failed with exit code {exit_code}",
+                    "total_functions": 0,
+                    "total_features": 0,
+                }
             # 检查克隆是否成功（目录是否存在且有内容）
             if not os.path.exists(repo_path) or not os.listdir(repo_path):
                 print(f"错误: 克隆后目录为空或不存在: {repo_path}")
-                return
+                return {
+                    "project_root": project_root,
+                    "output_dir": output_dir,
+                    "status": "failed",
+                    "reason": "cloned repository path is empty",
+                    "total_functions": 0,
+                    "total_features": 0,
+                }
         
         project_root = repo_path
         print(f"项目已拉取到{repo_path}")
@@ -76,7 +91,14 @@ def main(project_root: str, output_dir: str):
         # method_analyzer.analyze_project(project_root, output_dir)
     else:
         print("未找到支持的代码文件（.java 或 .py）")
-        return
+        return {
+            "project_root": project_root,
+            "output_dir": output_dir,
+            "status": "skipped",
+            "reason": "no supported source files (.java or .py)",
+            "total_functions": 0,
+            "total_features": 0,
+        }
 
     # 生成函数描述,可选择用函数名(function_name)/CodeT5(code_t5)/LLM(llm)生成
     language = "python" if has_python else "java"
@@ -115,9 +137,10 @@ def main(project_root: str, output_dir: str):
 
     # 设置日志文件
     logging.basicConfig(
-        filename='cluster_results.log',
+        filename=os.path.join(output_dir, 'cluster_results.log'),
         level=logging.INFO,
-        format='%(asctime)s - %(message)s'
+        format='%(asctime)s - %(message)s',
+        force=True,
     )
 
     def save_results_to_file(feature_list, summary, file_path):
@@ -178,7 +201,7 @@ def main(project_root: str, output_dir: str):
     )
     log_message = f"Total Features: {len(feature_list)}"
     print(log_message)
-    input("confirm the num of features")
+    #input("confirm the num of features")
     logging.info(log_message)
     
     for f in feature_list:
@@ -187,16 +210,34 @@ def main(project_root: str, output_dir: str):
         logging.info(log_message)
     
     # 保存聚类结果到文件
-    save_results_to_file(feature_list, summary, 'cluster_results.json')
+    save_results_to_file(feature_list, summary, os.path.join(output_dir, 'cluster_results.json'))
     
     modelname = "deepseek-v3"
+
+    description_stats = {
+        "failed_feature_ids": [],
+        "failed_feature_count": 0,
+        "fallback_feature_ids": [],
+        "fallback_feature_count": 0,
+    }
 
     # # 生成特征描述
     if GENERATE_DESCRIPTION:
         if is_parallel:
-            generate_feature_description_parallel(feature_list, modelname=modelname, max_workers=8)
+            description_stats = generate_feature_description_parallel(feature_list, modelname=modelname, max_workers=8)
         else:
-            generate_feature_description(feature_list, modelname=modelname)
+            description_stats = generate_feature_description(feature_list, modelname=modelname)
+
+    desc_log_message = (
+        f"Description generation issues: {description_stats['failed_feature_count']} features had generation errors "
+        f"(fallback used for {description_stats['fallback_feature_count']} features)."
+    )
+    print(desc_log_message)
+    logging.info(desc_log_message)
+    if description_stats["failed_feature_ids"]:
+        failed_ids_message = f"Description generation error feature IDs: {description_stats['failed_feature_ids']}"
+        print(failed_ids_message)
+        logging.info(failed_ids_message)
 
     # 合并特征
     merge_features_by_method_cluster(feature_list, method_clusters, modelname=modelname)
@@ -204,19 +245,25 @@ def main(project_root: str, output_dir: str):
     # 保存到CSV
     features_to_csv(feature_list, method_clusters, os.path.join(output_dir, "features.csv"))
 
+    return {
+        "project_root": project_root,
+        "output_dir": output_dir,
+        "status": "success",
+        "reason": "",
+        "total_functions": len(functions),
+        "total_features": len(feature_list),
+        "description_issue_features": description_stats["failed_feature_count"],
+        "description_issue_feature_ids": description_stats["failed_feature_ids"],
+        "description_fallback_features": description_stats["fallback_feature_count"],
+    }
+
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     # 待总结的项目路径
-    # project_root = "/data/data_public/riverbag/Datasets/DevEval/boto"
-    # project_root = "/data/data_public/riverbag/Datasets/DevEval/mopidy"
-    project_root = "/data/data_public/riverbag/Datasets/DevEval/mingus"
-    # project_root = "/data/data_public/riverbag/Datasets/DevEval/mrjob"
-    # project_root = "/data/data_public/riverbag/Datasets/DevEval/alembic"
+    project_root = "/data/data_public/riverbag/DevEval/Communications/Telethon"
     # repoSummary结果的保存路径
-    # output_dir = os.path.join(here, "out/boto")
-    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/211/mingus"
-    # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/mrjob/newTry"
-    # output_dir = "/data/data_public/riverbag/testRepoSummaryOut/alembic/0.1_0.85_40"
+    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/DevEval/Communications/Telethon"
+
     main(
         project_root=project_root,
         output_dir=output_dir
