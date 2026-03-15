@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -32,8 +33,9 @@ MODEL_BACKEND_CHOICE = "openai"
 # RAG使用的数据源，目前有几种："bm25", "unixcoder", "feature", "feature+bm25"
 RAG_DATA_SOURCE = "unixcoder"
 
-DEBUG = True  # 是否打印调试信息
-GENERATION_FLAG = False  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
+DEBUG = True  # 是否打印调试信息到控制台
+DEBUG_LOG_FULL = True  # DEBUG 为 True 时，是否将完整 prompt、补全结果等写入日志文件
+GENERATION_FLAG = True  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
 
 PROMPT_TEMPLATE = (
     "Please complete the function in the given Python code"
@@ -57,11 +59,12 @@ PROMPT_TEMPLATE = (
 # 全局变量，存储所有method的信息，用于根据签名获取完整的代码
 method_sig_to_info = {}
 
-# 读入之前处理的所有method信息
+# 读入之前处理的所有method信息（批量跑多项目时会在每次运行前清空再加载当前项目）
 def load_methods_info(methods_csv: str) -> None:
+    method_sig_to_info.clear()
     df_methods = pd.read_csv(methods_csv)
     print("Loading METHODS_CSV...")
-    
+
     for index, row in df_methods.iterrows():
         sig = str(row['method_signature'])
         method_sig_to_info[sig] = row.to_dict()
@@ -83,17 +86,19 @@ def load_diagnostic_result(diagnostic_jsonl: str) -> list[Dict[str, Any]]:
 
 
 # 得到相应任务的搜索结果，作为之后给LLM的context
-def get_searched_context_code(task: DevEvalTask, diag_record: Dict[str, Any]) -> list[Dict[str, Any]]:
+def get_searched_context_code(
+    task: DevEvalTask, diag_record: Dict[str, Any], rag_data_source: str
+) -> list[Dict[str, Any]]:
     task_namespace = task.namespace
     preds = []
     try:
-        if RAG_DATA_SOURCE == "bm25":
+        if rag_data_source == "bm25":
             preds = diag_record["bm25_code"]["top15"]["predictions"]
-        elif RAG_DATA_SOURCE == "unixcoder":
+        elif rag_data_source == "unixcoder":
             preds = diag_record["unixcoder_code"]["top15"]["predictions"]
-        elif RAG_DATA_SOURCE == "feature":
+        elif rag_data_source == "feature":
             preds = diag_record["feature"]["top3"]["predictions"]
-        elif RAG_DATA_SOURCE == "feature+bm25":
+        elif rag_data_source == "feature+bm25":
             # 因为后续还要在初始搜索结果的基础上进行扩展和筛选，因此先选取top10的
             preds = diag_record["hybrid"]["recall_top3_clusters"]["rank_top10"]["predictions"]
         
@@ -162,7 +167,12 @@ def generate_completions(
     *,
     filtered_path: str,
     source_code_dir: str,
+    methods_csv: str,
+    enre_json: str,
+    diagnostic_jsonl: str,
+    rag_data_source: str,
     output_jsonl: str,
+    debug_log_path_override: Optional[str] = None,
     backend: BackendName,
     model: str,
     temperature: float,
@@ -172,6 +182,9 @@ def generate_completions(
     max_tasks: Optional[int],
     sleep_s: float,
 ) -> None:
+
+    load_methods_info(methods_csv)
+    load_enre_elements(enre_json)
 
     # 清空输出结果的jsonl文件
     with open(output_jsonl, "w", encoding="utf-8"):
@@ -186,7 +199,13 @@ def generate_completions(
         timeout_s=timeout_s,
     )
 
-    diag_records = load_diagnostic_result(DIAGNOSTIC_JSONL)
+    diag_records = load_diagnostic_result(diagnostic_jsonl)
+
+    debug_log_path = None
+    if DEBUG and DEBUG_LOG_FULL:
+        debug_log_path = debug_log_path_override or (os.path.splitext(output_jsonl)[0] + "_debug.log")
+        with open(debug_log_path, "w", encoding="utf-8") as _:
+            pass
 
     processed = 0
     recall_sum = 0.0
@@ -202,7 +221,7 @@ def generate_completions(
         )
 
         # 获取该任务对应的代码搜索结果
-        searched_context_code_list = get_searched_context_code(task, diag_record)
+        searched_context_code_list = get_searched_context_code(task, diag_record, rag_data_source)
         print(f"code len: {len(searched_context_code_list)}")
         context_code_in_prompt = assemble_context_code_into_prompt(searched_context_code_list)
 
@@ -225,7 +244,21 @@ def generate_completions(
             print("[debug] signature:\n" + preview_text(signature), file=sys.stderr)
             print("[debug] requirement_comment:\n" + preview_text(requirement_comment), file=sys.stderr)
             print("[debug] prompt:\n" + preview_text(prompt), file=sys.stderr)
-        
+            if DEBUG_LOG_FULL and debug_log_path:
+                sep = "=" * 80
+                with open(debug_log_path, "a", encoding="utf-8") as logf:
+                    logf.write(f"\n{sep}\n")
+                    logf.write(f"Task idx={processed}  namespace={task.namespace}\n")
+                    logf.write(f"file={abs_file}\n")
+                    logf.write(f"{sep}\n\n")
+                    logf.write("--- Full prompt (complete) ---\n\n")
+                    logf.write(prompt)
+                    logf.write("\n\n")
+                    logf.write("--- Context only (context_code_in_prompt) ---\n\n")
+                    logf.write(context_code_in_prompt)
+                    logf.write("\n\n")
+                    logf.flush()
+
         if GENERATION_FLAG:
             raw_completion = client.generate(prompt)
             extracted_completion = extract_code_from_markdown(raw_completion)
@@ -235,10 +268,20 @@ def generate_completions(
                 requirement_comment=requirement_comment,
                 requirement_text=task.requirement_text,
             )
-        
+
             if DEBUG:
                 print("[debug] raw_completion:\n" + preview_text(raw_completion), file=sys.stderr)
                 print("[debug] final_completion:\n" + preview_text(completion), file=sys.stderr)
+                if DEBUG_LOG_FULL and debug_log_path:
+                    with open(debug_log_path, "a", encoding="utf-8") as logf:
+                        logf.write("--- Raw completion from LLM ---\n\n")
+                        logf.write(raw_completion)
+                        logf.write("\n\n--- Final completion (after postprocess) ---\n\n")
+                        logf.write(completion)
+                        logf.write("\n\n")
+                        logf.flush()
+        else:
+            completion = ""
 
         if GENERATION_FLAG:
             write_jsonl_line(output_jsonl, {
@@ -274,7 +317,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("--filtered_path", default=FILTERED_PATH)
     p.add_argument("--source_code_dir", default=SOURCE_CODE_DIR)
+    p.add_argument("--methods_csv", default=METHODS_CSV, help="Methods CSV 路径")
+    p.add_argument("--enre_json", default=ENRE_JSON, help="ENRE 报告 JSON 路径")
+    p.add_argument("--diagnostic_jsonl", default=DIAGNOSTIC_JSONL, help="检索结果 jsonl 路径")
+    p.add_argument("--rag_data_source", default=RAG_DATA_SOURCE,
+                   choices=["bm25", "unixcoder", "feature", "feature+bm25"],
+                   help="RAG 数据源：bm25 / unixcoder / feature / feature+bm25")
     p.add_argument("--output", default=OUTPUT_COMPLETION_PATH)
+    p.add_argument("--debug_log", default="", help="DEBUG 且 DEBUG_LOG_FULL 时的全量日志路径，默认 <output>_debug.log")
     p.add_argument("--backend", choices=["openai", "ollama", "mock"], default=MODEL_BACKEND_CHOICE)
     p.add_argument("--model", default=MODEL_NAME)
     p.add_argument("--temperature", type=float, default=0)
@@ -293,7 +343,12 @@ def main() -> None:
     generate_completions(
         filtered_path=args.filtered_path,
         source_code_dir=args.source_code_dir,
+        methods_csv=args.methods_csv,
+        enre_json=args.enre_json,
+        diagnostic_jsonl=args.diagnostic_jsonl,
+        rag_data_source=args.rag_data_source,
         output_jsonl=args.output,
+        debug_log_path_override=(args.debug_log.strip() or None),
         backend=args.backend,
         model=args.model,
         temperature=args.temperature,
@@ -306,6 +361,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    load_methods_info(METHODS_CSV)
-    load_enre_elements(ENRE_JSON)
     main()

@@ -35,7 +35,7 @@ MODEL_NAME = "deepseek-v3"
 MODEL_BACKEND_CHOICE = "openai"
 DEBUG = True  # 是否打印调试信息到控制台
 DEBUG_LOG_FULL = True  # DEBUG 为 True 时，是否同时将全量内容（完整 prompt 等）写入日志文件，便于检查 prompt 构造
-GENERATION_FLAG = False  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
+GENERATION_FLAG = True  # 是否做代码生成，默认True，如果只是统计context recall，则设置为False
 
 PROMPT_TEMPLATE = (
     "You will complete a Python function body based on the requirement and relevant repository context.\n\n"

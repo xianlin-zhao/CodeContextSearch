@@ -25,7 +25,7 @@ ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-repor
 # DevEval数据集case的路径（json，不是数据集项目本身）
 # DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
 DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
-TOP_SM = [1, 2, 3]#控制相似的methods的数量
+TOP_SM = [1, 2, 3] #控制相似的methods的数量
 CLUSTER_KS = [1, 3]
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
