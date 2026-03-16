@@ -20,18 +20,18 @@ from utils.task_recall import compute_task_recall, load_enre_elements
 
 
 SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/filtered.jsonl"
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/methods.csv"
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/alembic-report-enre.json"
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/Filited/alembic/diagnostic_unixcoder_code.jsonl"
-OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/Database_alembic/0122/unixcoder_rag_completion.jsonl"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/diagnostic_bm25_code.jsonl"
+OUTPUT_COMPLETION_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/mrjob/0316_cut/bm25_rag_completion.jsonl"
 
 # 代码生成使用的大模型
 MODEL_NAME = "deepseek-v3"
 MODEL_BACKEND_CHOICE = "openai"
 
 # RAG使用的数据源，目前有几种："bm25", "unixcoder", "feature", "feature+bm25"
-RAG_DATA_SOURCE = "unixcoder"
+RAG_DATA_SOURCE = "bm25"
 
 DEBUG = True  # 是否打印调试信息到控制台
 DEBUG_LOG_FULL = True  # DEBUG 为 True 时，是否将完整 prompt、补全结果等写入日志文件
@@ -133,10 +133,14 @@ def get_searched_context_code(
 # 将搜索到的代码片段拼接起来，作为prompt中的context
 def assemble_context_code_into_prompt(context_code_list: list[Dict[str, Any]]) -> str:
     context_code_in_prompt = ""
+    max_len = 3000
     for context_code in context_code_list:
+        method_code = str(context_code.get("method_code", ""))
+        if len(method_code) > max_len:
+            method_code = method_code[:max_len] + "..."
         context_code_in_prompt += (
-            f"{context_code['func_file']}\n"
-            f"{context_code['method_code']}\n\n"
+            f"{context_code.get('func_file', '')}\n"
+            f"{method_code}\n\n"
         )
     return context_code_in_prompt
 
