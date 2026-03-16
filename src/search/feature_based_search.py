@@ -1,6 +1,7 @@
 import os
+
 # os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-os.environ['HF_ENDPOINT'] = 'https://huggingface.co'
+os.environ["HF_ENDPOINT"] = "https://huggingface.co"
 import json
 import pandas as pd
 from typing import Any, Dict, Optional
@@ -10,71 +11,32 @@ import numpy as np
 import re
 from rank_bm25 import BM25Okapi
 from utils.query_refine import refine_query
+from utils.enre_utils import (
+    clear_enre_elements,
+    load_enre_elements,
+    _normalize_symbol,
+    compute_task_recall,
+    is_method_hit,
+)
 
+# 默认路径和控制参数，仅用于命令行直接运行本脚本时的便捷入口；
+# 实际批量实验时应通过函数参数传入这些路径和超参。
 PROJECT_DIR = "System/mrjob"
-# PROJECT_DIR = "Internet/boto"
-# PROJECT_DIR ="Database/alembic"
-# PROJECT_DIR = "Multimedia/Mopidy"
-# PROJECT_DIR = "Security/diffprivlib"
-
-FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/features.csv" 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv" 
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json' 
+FEATURE_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/features.csv"
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+REFINED_QUERIES_CACHE_PATH = (
+    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json"
+)
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
-# DevEval数据集case的路径（json，不是数据集项目本身）
-# DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
+# 完整 DevEval 数据集 jsonl 路径
 DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
-TOP_SM = [1, 2, 3] #控制相似的methods的数量
+TOP_SM = [1, 2, 3]  # 控制相似的methods的数量
 CLUSTER_KS = [1, 3]
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False
 USE_REFINED_QUERY = False
-
-variables_enre = set()
-unresolved_attribute_enre = set()
-module_enre = set()
-package_enre = set()
-
-
-def load_enre_elements(json_path):
-    if not os.path.exists(json_path):
-        print(f"Warning: ENRE JSON file not found at {json_path}")
-        return
-
-    try:
-        with open(json_path, 'r') as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f"Error reading ENRE JSON: {e}")
-        return
-
-    variables = data.get("variables", [])
-    for var in variables:
-        if var.get('category') == 'Variable':
-            qname = var.get('qualifiedName')
-            if qname:
-                variables_enre.add(qname)
-        elif var.get('category') == 'Unresolved Attribute':
-            if 'File' in var and '/' in var.get('File'):
-                qname = var.get('qualifiedName')
-                if qname:
-                    unresolved_attribute_enre.add(qname)
-        elif var.get('category') == 'Module':
-            qname = var.get('qualifiedName')
-            if qname:
-                module_enre.add(qname)
-        elif var.get('category') == 'Package':
-            qname = var.get('qualifiedName')
-            if qname:
-                package_enre.add(qname)
-
-
-def _normalize_symbol(s: str) -> str:
-    if "(" in s:
-        return s.split("(", 1)[0]
-    return s
 
 
 def _maybe_insert_init_in_target_method(target_method: str) -> str:
@@ -98,83 +60,33 @@ def _maybe_insert_init_in_target_method(target_method: str) -> str:
     return ".".join(parts)
 
 
-def compute_task_recall(
-    dependency: Optional[list[str]],
-    searched_context_code_list: list[Dict[str, Any]],
+def analyze_project(
+    project_dir: str,
+    *,
+    feature_csv: str,
+    methods_csv: str,
+    filtered_path: str,
+    refined_queries_cache_path: str,
+    enre_json: str,
+    data_jsonl: str,
+    top_sm: list[int] = TOP_SM,
+    cluster_ks: list[int] = CLUSTER_KS,
+    use_refined_query: bool = USE_REFINED_QUERY,
 ) -> Dict[str, Any]:
-    dep = dependency or []
-    dep_set = {x for x in dep}
-
-    retrieved_set = {
-        _normalize_symbol(str(x.get("method_signature", "")))
-        for x in searched_context_code_list
-        if isinstance(x, dict)
-    }
-    retrieved_set = {x.replace(".__init__", "") for x in retrieved_set}
-
-    dep_total = len(dep_set)
-    hit_set = dep_set & retrieved_set
-    hit = len(hit_set) if dep_total > 0 else 0
-
-    for x in dep:
-        if x in variables_enre:
-            var_name = x.split('.')[-1]
-            for context_code in searched_context_code_list:
-                code_detail = context_code.get("method_code", "")
-                if var_name in code_detail:
-                    hit_set.add(x)
-                    hit += 1
-                    break
-        elif x in unresolved_attribute_enre:
-            attr_name = x.split('.')[-1]
-            class_name = '.'.join(x.split('.')[:-1])
-            for context_code in searched_context_code_list:
-                sig = context_code.get("sig", "")
-                code_detail = context_code.get("method_code", "")
-                if sig.startswith(f"{class_name}.") and f"self.{attr_name}" in code_detail:
-                    hit_set.add(x)
-                    hit += 1
-                    break
-        elif x in module_enre:
-            module_name = x
-            for context_code in searched_context_code_list:
-                sig = context_code.get("sig", "")
-                if sig.startswith(module_name):
-                    hit_set.add(x)
-                    hit += 1
-                    break
-        elif x in package_enre:
-            package_name = x
-            for context_code in searched_context_code_list:
-                sig = context_code.get("sig", "")
-                if sig.startswith(package_name):
-                    hit_set.add(x)
-                    hit += 1
-                    break
-
-    recall = (hit / dep_total) if dep_total > 0 else None
-    return {
-        "dependency_total": dep_total,
-        "dependency_hit": hit,
-        "recall": recall,
-    }
-
-
-def analyze_project(project_dir):
-    # Create output directory
-    # output_dir = project_dir
-    # os.makedirs(output_dir, exist_ok=True)
-    
+    """
+    对单个项目运行 feature-based 搜索并返回指标。
+    所有路径参数显式传入，便于批量脚本复用。
+    """
     # Step 1: Filter by project_dir
-    with open(DATA_JSONL, 'r') as infile, open(FILTERED_PATH, 'w') as outfile:
+    with open(data_jsonl, "r") as infile, open(filtered_path, "w") as outfile:
         for line in infile:
             data = json.loads(line.strip())
-            if data.get('project_path') == project_dir:
+            if data.get("project_path") == project_dir:
                 outfile.write(line)
-    
+
     # Step 2: Find similar clusters
     df = pd.read_csv(
-        FEATURE_CSV,
+        feature_csv,
         dtype=str,
         keep_default_na=False,
         quoting=0,
@@ -213,12 +125,13 @@ def analyze_project(project_dir):
     cluster_embeddings = model.encode(clusters['desc'].tolist())
 
     # load methods corpus
-    methods_df = pd.read_csv(METHODS_CSV, dtype=str).fillna('')
+    methods_df = pd.read_csv(methods_csv, dtype=str).fillna("")
     # ensure columns exist
     if 'method_signature' not in methods_df.columns or 'method_code' not in methods_df.columns:
         raise ValueError("methods.csv must contain 'method_signature' and 'method_code' columns")
 
-    load_enre_elements(ENRE_JSON)
+    clear_enre_elements()
+    load_enre_elements(enre_json)
 
     method_sig_to_code = dict(
         zip(
@@ -236,8 +149,8 @@ def analyze_project(project_dir):
         toks = re.findall(r'\w+', code.lower())
         return toks
 
-    code_docs = [tokenize_code(c) for c in methods_df['method_code'].tolist()]
-    methods_corpus_strings = methods_df['method_signature'].tolist()
+    code_docs = [tokenize_code(c) for c in methods_df["method_code"].tolist()]
+    methods_corpus_strings = methods_df["method_signature"].tolist()
     bm25_code = BM25Okapi(code_docs)
 
     def resolve_method_signature(method_str: str) -> str:
@@ -265,43 +178,21 @@ def analyze_project(project_dir):
         target_norm = _normalize_symbol(target_method_str)
         return [m for m in method_strs if _normalize_symbol(m) != target_norm]
 
-    def is_method_hit(method_signature: str, method_code: str, deps_list: list[str]) -> bool:
-        norm_sig = _normalize_symbol(method_signature).replace(".__init__", "")
-        for x in deps_list:
-            if x == norm_sig:
-                return True
-            if x in variables_enre:
-                var_name = x.split(".")[-1]
-                if var_name and var_name in (method_code or ""):
-                    return True
-            if x in unresolved_attribute_enre:
-                attr_name = x.split('.')[-1]
-                class_name = '.'.join(x.split('.')[:-1])
-                if norm_sig.startswith(f"{class_name}.") and f"self.{attr_name}" in (method_code or ""):
-                    return True
-            if x in module_enre:
-                if norm_sig.startswith(x):
-                    return True
-            if x in package_enre:
-                if norm_sig.startswith(x):
-                    return True
-        return False
-
     # Load or initialize the query cache
     if os.path.exists(refined_queries_cache_path):
-        with open(refined_queries_cache_path, 'r') as f:
+        with open(refined_queries_cache_path, "r") as f:
             refined_queries_cache = json.load(f)
     else:
         refined_queries_cache = {}
-        with open(refined_queries_cache_path, 'w') as f:
+        with open(refined_queries_cache_path, "w") as f:
             json.dump(refined_queries_cache, f, indent=2)
 
-    with open(FILTERED_PATH, 'r') as f:
+    with open(filtered_path, "r") as f:
         example_counter = 0
         feature_records = []
         top_gt = 0
 
-        cluster_metrics = {k: {"match": 0, "pred": 0} for k in CLUSTER_KS}
+        cluster_metrics = {k: {"match": 0, "pred": 0} for k in cluster_ks}
 
         def methods_from_top_k_clusters(similarities, k, forced_cluster_id=None):
             k_int = int(k)
@@ -367,7 +258,7 @@ def analyze_project(project_dir):
                 target_code_scores = bm25_code.get_scores(target_code_tokens)
                 target_code_order = np.argsort(target_code_scores)
                 target_method_norm = _normalize_symbol(target_method)
-                for k in TOP_SM:
+                for k in top_sm:
                     k_int = int(k)
                     selected = []
                     seen = set()
@@ -384,12 +275,12 @@ def analyze_project(project_dir):
                             break
                     similar_methods[f"top{k_int}"] = selected
             else:
-                for k in TOP_SM:
+                for k in top_sm:
                     similar_methods[f"top{int(k)}"] = []
             #从数据中提取真实的依赖关系（ dependency ），这些是本次搜索的“正确答案”
-            deps.extend(data['dependency']['intra_class'])
-            deps.extend(data['dependency']['intra_file'])
-            deps.extend(data['dependency']['cross_file'])
+            deps.extend(data["dependency"]["intra_class"])
+            deps.extend(data["dependency"]["intra_file"])
+            deps.extend(data["dependency"]["cross_file"])
             # print("deps",deps)
             # #清洗/过滤
             # deps = [dep for dep in deps if (dep in method_names) or (dep in variables_enre)]
@@ -399,10 +290,14 @@ def analyze_project(project_dir):
             top_gt += len(deps)
 
             # feature-based search
-            original_query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
+            original_query = (
+                data["requirement"]["Functionality"]
+                + " "
+                + data["requirement"]["Arguments"]
+            )
             #print("original query: ", original_query)
 
-            if USE_REFINED_QUERY:
+            if use_refined_query:
                 if original_query in refined_queries_cache:
                     query = refined_queries_cache[original_query]
                     # print("found in cache")
@@ -411,7 +306,7 @@ def analyze_project(project_dir):
                     query = refine_query(original_query, modelname)
                     refined_queries_cache[original_query] = query
                     # 关键：添加后立即保存！
-                    with open(refined_queries_cache_path, 'w') as f:
+                    with open(refined_queries_cache_path, "w") as f:
                         json.dump(refined_queries_cache, f, indent=2)
                 # print("refined query: ", query)
             else:
@@ -421,7 +316,7 @@ def analyze_project(project_dir):
             query_embedding = model.encode([query])
             similarities = cosine_similarity(query_embedding, cluster_embeddings)[0]
 
-            for k in CLUSTER_KS:
+            for k in cluster_ks:
                 methods_k = methods_from_top_k_clusters(similarities, k, target_feature_id)
                 methods_k = filter_out_target_method(methods_k, target_method)
                 cluster_metrics[k]["pred"] += len(methods_k)
@@ -437,7 +332,7 @@ def analyze_project(project_dir):
                 "ground_truth": deps,
                 "feature": {}
             }
-            for k in CLUSTER_KS:
+            for k in cluster_ks:
                 mk = methods_from_top_k_clusters(similarities, k, target_feature_id)
                 mk = filter_out_target_method(mk, target_method)
                 num_pred = len(mk)
@@ -470,21 +365,29 @@ def analyze_project(project_dir):
                 }
             feature_records.append(feature_record)
 
-        out_dir = os.path.dirname(FILTERED_PATH)
+        out_dir = os.path.dirname(filtered_path)
         feature_path = os.path.join(out_dir, "diagnostic_***feature.jsonl")
         with open(feature_path, "w", encoding="utf-8") as fo:
             for rec in feature_records:
                 fo.write(json.dumps(rec, ensure_ascii=False) + "\n")
         
         # Save the updated cache
-        with open(refined_queries_cache_path, 'w') as f:
+        with open(refined_queries_cache_path, "w") as f:
             json.dump(refined_queries_cache, f, indent=4)
 
         # ===================== DIAGNOSTIC JSON CODE END =====================
         def safe_div(a, b):
             return (a / b) if b != 0 else 0
 
-        for k in CLUSTER_KS:
+        # 将聚合指标保存下来，便于批量统计
+        project_metrics: Dict[str, Any] = {
+            "project_dir": project_dir,
+            "num_examples": example_counter,
+            "top_gt": top_gt,
+            "feature": {},
+        }
+
+        for k in cluster_ks:
             m = cluster_metrics[k]["match"]
             p = cluster_metrics[k]["pred"]
             print(f"Top {k} Match: {m}")
@@ -495,9 +398,29 @@ def analyze_project(project_dir):
             f1_val = (2 * safe_div(m, p) * safe_div(m, top_gt) / denom) if denom > 0 else 0
             print(f"Top {k} F1={f1_val*100:.2f}%")
             print("--------------------------------")
-    
+            project_metrics["feature"][k] = {
+                "match": m,
+                "pred": p,
+                "top_gt": top_gt,
+                "P": safe_div(m, p),
+                "R": safe_div(m, top_gt),
+                "F1": f1_val,
+            }
+
     print(f"Analysis completed for {project_dir}")
+    return project_metrics
 
 
 if __name__ == "__main__":
-    analyze_project(PROJECT_DIR)
+    analyze_project(
+        PROJECT_DIR,
+        feature_csv=FEATURE_CSV,
+        methods_csv=METHODS_CSV,
+        filtered_path=FILTERED_PATH,
+        refined_queries_cache_path=REFINED_QUERIES_CACHE_PATH,
+        enre_json=ENRE_JSON,
+        data_jsonl=DATA_JSONL,
+        top_sm=TOP_SM,
+        cluster_ks=CLUSTER_KS,
+        use_refined_query=USE_REFINED_QUERY,
+    )
