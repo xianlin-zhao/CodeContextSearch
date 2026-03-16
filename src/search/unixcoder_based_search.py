@@ -9,6 +9,13 @@ import numpy as np
 from typing import Any, Dict, Optional
 from search_models.unixcoder import UniXcoder
 from utils.query_refine import refine_query
+from utils.enre_utils import (
+    clear_enre_elements,
+    load_enre_elements,
+    _normalize_symbol,
+    compute_task_recall,
+    is_method_hit,
+)
 
 # 默认路径参数，仅用于命令行直接运行本脚本时的便捷入口；
 # 实际批量实验时应通过函数参数传入这些路径。
@@ -23,157 +30,9 @@ ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-repor
 NEED_METHOD_NAME_NORM = False
 USE_REFINED_QUERY = False
 
-variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个变量，就认为成功
-unresolved_attribute_enre = set()  # enre中的此类型通常表示一个类里的self.xxx属性，只要搜到的代码出现了self.xxx，就认为成功
-module_enre = set()  # 模块（其实是python文件），有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
-package_enre = set()  # 包，会出现与module类似的情况
-
-
-def clear_enre_elements() -> None:
-    """清空 ENRE 元素集合。批量跑多项目时，每切换项目前调用，再调用 load_enre_elements 加载当前项目。"""
-    variables_enre.clear()
-    unresolved_attribute_enre.clear()
-    module_enre.clear()
-    package_enre.clear()
-
-
-def load_enre_elements(json_path):
-	"""读取enre的解析结果文件，重点读取Variable, Unresolved Attribute, Module, Package类型"""
-	if not os.path.exists(json_path):
-		print(f"Warning: ENRE JSON file not found at {json_path}")
-		return
-
-	try:
-		with open(json_path, 'r') as f:
-			data = json.load(f)
-	except Exception as e:
-		print(f"Error reading ENRE JSON: {e}")
-		return
-
-	variables = data.get("variables", [])
-	for var in variables:
-		if var.get('category') == 'Variable':
-			qname = var.get('qualifiedName')
-			if qname:
-				variables_enre.add(qname)
-		elif var.get('category') == 'Unresolved Attribute':
-			# 必须存在"File"字段，且File必须包含"/"，否则可能是外部库文件里面的属性
-			if 'File' in var and '/' in var.get('File'):
-				qname = var.get('qualifiedName')
-				if qname:
-					unresolved_attribute_enre.add(qname)
-		elif var.get('category') == 'Module':
-			qname = var.get('qualifiedName')
-			if qname:
-				module_enre.add(qname)
-		elif var.get('category') == 'Package':
-			qname = var.get('qualifiedName')
-			if qname:
-				package_enre.add(qname)
-
-
-def _normalize_symbol(s: str) -> str:
-	if "(" in s:
-		return s.split("(", 1)[0]
-	return s
-
-
 def filter_out_target_method(method_strs: list[str], target_method_str: str) -> list[str]:
 	target_norm = _normalize_symbol(target_method_str)
 	return [m for m in method_strs if _normalize_symbol(m) != target_norm]
-
-
-def compute_task_recall(
-	dependency: Optional[list[str]],
-	searched_context_code_list: list[Dict[str, Any]],
-) -> Dict[str, Any]:
-	dep = dependency or []
-	dep_set = {x for x in dep}
-
-	# 这里搜到的只能是函数或类
-	retrieved_set = {
-		_normalize_symbol(str(x.get("method_signature", "")))
-		for x in searched_context_code_list
-		if isinstance(x, dict)
-	}
-	# 特判：如果retrieve的元素是xx.__init__.yy这种格式，要转成xx.yy，因为enre的解析结果和DevEval不一样
-	retrieved_set = {x.replace(".__init__", "") for x in retrieved_set}
-
-	dep_total = len(dep_set)
-
-	hit_set = dep_set & retrieved_set
-	hit = len(hit_set) if dep_total > 0 else 0
-
-	# 特判
-	for x in dep:
-		if x in variables_enre:
-			# 如果是变量，就看该变量是否出现在某段代码里
-			var_name = x.split('.')[-1]
-			for context_code in searched_context_code_list:
-				code_detail = context_code.get("method_code", "")
-				if var_name in code_detail:
-					hit_set.add(x)
-					hit += 1
-					break
-		elif x in unresolved_attribute_enre:
-			attr_name = x.split('.')[-1]  # 属性名
-			class_name = '.'.join(x.split('.')[:-1])  # 类名是属性名前面的全部
-			for context_code in searched_context_code_list:
-				sig = context_code.get("sig", "")
-				code_detail = context_code.get("method_code", "")
-				# 如果这段搜到的代码真的在class_name类里面，且包含self.xxx属性，就认为成功
-				if sig.startswith(f"{class_name}.") and f"self.{attr_name}" in code_detail:
-					hit_set.add(x)
-					hit += 1
-					break
-		elif x in module_enre:
-			# 如果是模块，就看该模块名称是否为某个context_code的sig的前缀
-			module_name = x
-			for context_code in searched_context_code_list:
-				sig = context_code.get("sig", "")
-				if sig.startswith(module_name):
-					hit_set.add(x)
-					hit += 1
-					break
-		elif x in package_enre:
-			# 如果是包，就看该包名称是否为某个context_code的sig的前缀，与Module类似
-			package_name = x
-			for context_code in searched_context_code_list:
-				sig = context_code.get("sig", "")
-				if sig.startswith(package_name):
-					hit_set.add(x)
-					hit += 1
-					break
-
-	recall = (hit / dep_total) if dep_total > 0 else None
-	return {
-		"dependency_total": dep_total,
-		"dependency_hit": hit,
-		"recall": recall,
-	}
-
-
-def is_method_hit(method_signature: str, method_code: str, deps_list: list[str]) -> bool:
-	norm_sig = _normalize_symbol(method_signature).replace(".__init__", "")
-	for x in deps_list:
-		if x == norm_sig:
-			return True
-		if x in variables_enre:
-			var_name = x.split(".")[-1]
-			if var_name and var_name in (method_code or ""):
-				return True
-		if x in unresolved_attribute_enre:
-			attr_name = x.split('.')[-1]
-			class_name = '.'.join(x.split('.')[:-1])
-			if norm_sig.startswith(f"{class_name}.") and f"self.{attr_name}" in (method_code or ""):
-				return True
-		if x in module_enre:
-			if norm_sig.startswith(x):
-				return True
-		if x in package_enre:
-			if norm_sig.startswith(x):
-				return True
-	return False
 
 
 def load_unixcoder_model(model_path_or_name=None, device=None):
