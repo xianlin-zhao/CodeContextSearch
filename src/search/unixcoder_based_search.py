@@ -1,5 +1,6 @@
 import os
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 import json
 import torch
 import torch.nn.functional as F
@@ -9,9 +10,13 @@ from typing import Any, Dict, Optional
 from search_models.unixcoder import UniXcoder
 from utils.query_refine import refine_query
 
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv" 
-FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json'
+# 默认路径参数，仅用于命令行直接运行本脚本时的便捷入口；
+# 实际批量实验时应通过函数参数传入这些路径。
+METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+FILTERED_FILE = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+REFINED_QUERIES_CACHE_PATH = (
+    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json"
+)
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
@@ -22,6 +27,14 @@ variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个
 unresolved_attribute_enre = set()  # enre中的此类型通常表示一个类里的self.xxx属性，只要搜到的代码出现了self.xxx，就认为成功
 module_enre = set()  # 模块（其实是python文件），有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
 package_enre = set()  # 包，会出现与module类似的情况
+
+
+def clear_enre_elements() -> None:
+    """清空 ENRE 元素集合。批量跑多项目时，每切换项目前调用，再调用 load_enre_elements 加载当前项目。"""
+    variables_enre.clear()
+    unresolved_attribute_enre.clear()
+    module_enre.clear()
+    package_enre.clear()
 
 
 def load_enre_elements(json_path):
@@ -202,6 +215,7 @@ def encode_corpus_with_unixcoder(model, device, texts, batch_size=32, max_length
 	code_embs = torch.cat(all_embs, dim=0)
 	return code_embs  # on CPU
 
+
 def encode_nl_with_unixcoder(model, device, text, max_length=512):
 	# tokenize one NL example and encode
 	tokens_ids = model.tokenize([text], max_length=max_length, mode="<encoder-only>")
@@ -211,13 +225,22 @@ def encode_nl_with_unixcoder(model, device, text, max_length=512):
 		nl_embedding = F.normalize(nl_embedding, p=2, dim=1)  # shape (1, dim)
 	return nl_embedding.cpu()
 
-def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FILTERED_FILE, model_path=None, batch_size=32):
-	# load methods
-	methods_df = pd.read_csv(methods_csv, dtype=str).fillna('')
-	if 'method_code' not in methods_df.columns or 'method_signature' not in methods_df.columns:
+
+def evaluate_retrieval_with_unixcoder(
+    *,
+    methods_csv: str,
+    filtered_file: str,
+    enre_json: str,
+    refined_queries_cache_path: str,
+    model_path: Optional[str] = None,
+    batch_size: int = 32,
+) -> Dict[str, Any]:
+    # load methods
+	methods_df = pd.read_csv(methods_csv, dtype=str).fillna("")
+	if "method_code" not in methods_df.columns or "method_signature" not in methods_df.columns:
 		raise ValueError("methods.csv must contain 'method_code' and 'method_signature' columns")
-	method_codes = methods_df['method_code'].tolist()
-	method_signatures = methods_df['method_signature'].tolist()
+	method_codes = methods_df["method_code"].tolist()
+	method_signatures = methods_df["method_signature"].tolist()
 
 	method_names = [sig.split('(')[0] for sig in method_signatures]
 	
@@ -227,7 +250,8 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 		methods_df['method_name_norm'] = base_names.str.split('.', n=1).str[1].fillna(base_names)
 		method_names = methods_df['method_name_norm'].unique().tolist()
 
-	load_enre_elements(ENRE_JSON)
+	clear_enre_elements()
+	load_enre_elements(enre_json)
 
 	method_sig_to_code = dict(
         zip(
@@ -280,10 +304,12 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 			# deps = [dep for dep in deps if (dep in method_names) or (dep in variables_enre)]
 			total_gt += len(deps)
 
-			# build natural language query
-			#query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
-			original_query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
-			#print("original query: ", original_query)
+            # build natural language query
+			original_query = (
+                data["requirement"]["Functionality"]
+                + " "
+                + data["requirement"]["Arguments"]
+            )
 
 			if USE_REFINED_QUERY:
 				if original_query in refined_queries_cache:
@@ -371,6 +397,12 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 	def safe_div(a, b):
 		return (a / b) if b != 0 else 0
 
+	project_metrics: Dict[str, Any] = {
+		"num_examples": example_counter,
+		"top_gt": total_gt,
+		"unixcoder": {},
+	}
+
 	print("UniXcoder retrieval results (based on method_code embeddings):")
 	for k in topk_list:
 		m = match_counts[k]
@@ -379,12 +411,33 @@ def evaluate_retrieval_with_unixcoder(methods_csv=METHODS_CSV, filtered_file=FIL
 		precision = safe_div(m, p)
 		recall = safe_div(m, r)
 		f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0
-		print(f"Top{k} Match: {m}, Pred: {p}, P={(precision*100):.2f}%, R={(recall*100):.2f}%, F1={(f1*100):.2f}%，{(recall*100):.2f}%({m}/{p})")
+		print(
+			f"Top{k} Match: {m}, Pred: {p}, P={(precision*100):.2f}%, "
+			f"R={(recall*100):.2f}%, F1={(f1*100):.2f}%，{(recall*100):.2f}%({m}/{p})"
+		)
+		project_metrics["unixcoder"][k] = {
+			"match": m,
+			"pred": p,
+			"top_gt": total_gt,
+			"P": precision,
+			"R": recall,
+			"F1": f1,
+		}
+
+	return project_metrics
+
 
 if __name__ == "__main__":
-	# adjust these paths / model checkpoint as needed
-	methods_csv = METHODS_CSV
-	filtered_file = FILTERED_FILE
-	# model_path can be None if your load_unixcoder_model defaults to a sensible checkpoint
-	model_path = None
-	evaluate_retrieval_with_unixcoder(methods_csv=methods_csv, filtered_file=filtered_file, model_path=model_path, batch_size=32)
+    # adjust these paths / model checkpoint as needed
+    methods_csv = METHODS_CSV
+    filtered_file = FILTERED_FILE
+    # model_path can be None if your load_unixcoder_model defaults to a sensible checkpoint
+    model_path = None
+    evaluate_retrieval_with_unixcoder(
+        methods_csv=methods_csv,
+        filtered_file=filtered_file,
+        enre_json=ENRE_JSON,
+        refined_queries_cache_path=REFINED_QUERIES_CACHE_PATH,
+        model_path=model_path,
+        batch_size=32,
+    )
