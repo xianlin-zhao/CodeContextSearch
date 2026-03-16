@@ -1,5 +1,6 @@
 import os
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 # os.environ['HF_ENDPOINT'] = 'https://huggingface.co'
 import json
 import pandas as pd
@@ -9,26 +10,31 @@ import re
 from rank_bm25 import BM25Okapi
 from utils.query_refine import refine_query
 
+# 默认路径参数，仅用于命令行直接运行本脚本时的便捷入口；
+# 实际批量实验时应通过函数参数传入这些路径。
 PROJECT_DIR = "System/mrjob"
-# PROJECT_DIR = "Internet/boto"
-# PROJECT_DIR ="Database/alembic"
-# PROJECT_DIR = "Multimedia/Mopidy"
-# PROJECT_DIR = "Security/diffprivlib"
-# PROJECT_DIR = "Security/diffprivlib"
-
-METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv" 
-METHODS_DESC_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods_with_desc.csv"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-refined_queries_cache_path = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json' 
-ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
-# DevEval数据集case的路径（json，不是数据集项目本身）
-# DATA_JSONL = "/data/lowcode_public/DevEval/data_have_dependency_cross_file.jsonl"
-# 完整数据集jsonl路径
+METHODS_CSV = (
+    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+)
+METHODS_DESC_CSV = (
+    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods_with_desc.csv"
+)
+FILTERED_PATH = (
+    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+)
+REFINED_QUERIES_CACHE_PATH = (
+    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json"
+)
+ENRE_JSON = (
+    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
+)
+# 完整 DevEval 数据集 jsonl 路径
 DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
 
 
 # 是否需要把method名称规范化，例如得到的csv中是mrjob.mrjob.xx，将其规范化为mrjob.xx，以便进行测评
 NEED_METHOD_NAME_NORM = False
+# 是否使用 query refine
 USE_REFINED_QUERY = False
 
 
@@ -36,6 +42,14 @@ variables_enre = set()  # 变量类型，只要搜到的代码里用到了这个
 unresolved_attribute_enre = set()  # enre中的此类型通常表示一个类里的self.xxx属性，只要搜到的代码出现了self.xxx，就认为成功
 module_enre = set()  # 模块(其实是python文件)，有时候dependency里会出现单独的模块名，只要搜到这个模块里的元素，就认为成功
 package_enre = set()  # 包，会出现与module类似的情况
+
+
+def clear_enre_elements() -> None:
+    """清空 ENRE 元素集合。批量跑多项目时，每切换项目前调用，再调用 load_enre_elements 加载当前项目。"""
+    variables_enre.clear()
+    unresolved_attribute_enre.clear()
+    module_enre.clear()
+    package_enre.clear()
 
 
 def load_enre_elements(json_path):
@@ -169,26 +183,37 @@ def compute_task_recall(
         "recall": recall,
     }
 
-def analyze_project(project_dir):
-    # Create output directory
-    # output_dir = project_dir
-    # os.makedirs(output_dir, exist_ok=True)
-    
+def analyze_project(
+    project_dir: str,
+    *,
+    methods_csv: str,
+    methods_desc_csv: str,
+    filtered_path: str,
+    refined_queries_cache_path: str,
+    enre_json: str,
+    data_jsonl: str,
+    use_refined_query: bool = USE_REFINED_QUERY,
+) -> Dict[str, Any]:
+    """
+    对单个项目运行 BM25 搜索并返回指标。
+
+    所有路径参数显式传入，便于批量脚本复用。
+    """
     # Step 1: Filter by project_dir
-    with open(DATA_JSONL, 'r') as infile, open(FILTERED_PATH, 'w') as outfile:
+    with open(data_jsonl, "r") as infile, open(filtered_path, "w") as outfile:
         for line in infile:
             data = json.loads(line.strip())
-            if data.get('project_path') == project_dir:
+            if data.get("project_path") == project_dir:
                 outfile.write(line)
-    
+
     # load methods corpus
-    methods_df = pd.read_csv(METHODS_CSV, dtype=str).fillna('')
+    methods_df = pd.read_csv(methods_csv, dtype=str).fillna("")
     # ensure columns exist
     if 'method_signature' not in methods_df.columns or 'method_code' not in methods_df.columns:
         raise ValueError("methods.csv must contain 'method_signature' and 'method_code' columns")
 
     # load methods with description corpus
-    methods_desc_df = pd.read_csv(METHODS_DESC_CSV, dtype=str).fillna('')
+    methods_desc_df = pd.read_csv(methods_desc_csv, dtype=str).fillna("")
     if 'func_desc' not in methods_desc_df.columns:
         raise ValueError("methods_with_desc.csv must contain 'func_desc' column")
 
@@ -208,24 +233,27 @@ def analyze_project(project_dir):
         toks = re.findall(r'\w+', text.lower())
         return toks
 
-    signature_docs = [tokenize_signature(s) for s in methods_df['method_signature'].tolist()]
+    signature_docs = [
+        tokenize_signature(s) for s in methods_df["method_signature"].tolist()
+    ]
     # print(signature_docs[:10])
     # print("=======================================")
-    code_docs = [tokenize_code(c) for c in methods_df['method_code'].tolist()]
+    code_docs = [tokenize_code(c) for c in methods_df["method_code"].tolist()]
     # print(code_docs[:10])
     # print("=======================================")
-    desc_docs = [tokenize_text(d) for d in methods_desc_df['func_desc'].tolist()]
+    desc_docs = [tokenize_text(d) for d in methods_desc_df["func_desc"].tolist()]
     # print(desc_docs[:10])
     # store the original method strings to return as predicted items
-    methods_corpus_strings = methods_df['method_signature'].tolist()
+    methods_corpus_strings = methods_df["method_signature"].tolist()
     # 这里其实methods_desc_df['func_fullName']和methods_df['method_signature']是一样的，但是为了防止不一样的情况，这里还是给他进行了单独拎出来
-    methods_desc_corpus_strings = methods_desc_df['func_fullName'].tolist()
+    methods_desc_corpus_strings = methods_desc_df["func_fullName"].tolist()
 
     bm25_sig = BM25Okapi(signature_docs)
     bm25_code = BM25Okapi(code_docs)
     bm25_desc = BM25Okapi(desc_docs)
 
-    load_enre_elements(ENRE_JSON)
+    clear_enre_elements()
+    load_enre_elements(enre_json)
 
     method_sig_to_code = dict(
         zip(
@@ -288,21 +316,21 @@ def analyze_project(project_dir):
 
     # Load or initialize the query cache
     if os.path.exists(refined_queries_cache_path):
-        with open(refined_queries_cache_path, 'r') as f:
+        with open(refined_queries_cache_path, "r") as f:
             refined_queries_cache = json.load(f)
     else:
         refined_queries_cache = {}
-        with open(refined_queries_cache_path, 'w') as f:
+        with open(refined_queries_cache_path, "w") as f:
             json.dump(refined_queries_cache, f, indent=2)
 
-    with open(FILTERED_PATH, 'r') as f:
+    with open(filtered_path, "r") as f:
         example_counter = 0
         sig_records = []
         code_records = []
         desc_records = []
         top_gt = 0
 
-        sig_ks = [5, 10, 15 ,20]
+        sig_ks = [5, 10, 15, 20]
         sig_metrics = {k: {"match": 0, "pred": 0} for k in sig_ks}
 
         code_metrics = {k: {"match": 0, "pred": 0} for k in sig_ks}
@@ -318,9 +346,9 @@ def analyze_project(project_dir):
             deps = []
             target_method = data.get("namespace") or ""
             #从数据中提取真实的依赖关系( dependency )，这些是本次搜索的“正确答案”
-            deps.extend(data['dependency']['intra_class'])
-            deps.extend(data['dependency']['intra_file'])
-            deps.extend(data['dependency']['cross_file'])
+            deps.extend(data["dependency"]["intra_class"])
+            deps.extend(data["dependency"]["intra_file"])
+            deps.extend(data["dependency"]["cross_file"])
             # print("deps",deps)
             # #清洗/过滤
             # deps = [dep for dep in deps if (dep in method_names) or (dep in variables_enre)]
@@ -329,10 +357,14 @@ def analyze_project(project_dir):
             #将本条测试数据的正确答案数量累加到总数中
             top_gt += len(deps)
 
-            original_query = data['requirement']['Functionality'] + ' ' + data['requirement']['Arguments']
+            original_query = (
+                data["requirement"]["Functionality"]
+                + " "
+                + data["requirement"]["Arguments"]
+            )
             #print("original query: ", original_query)
 
-            if USE_REFINED_QUERY:
+            if use_refined_query:
                 if original_query in refined_queries_cache:
                     query = refined_queries_cache[original_query]
                     # print("found in cache")
@@ -380,10 +412,10 @@ def analyze_project(project_dir):
                 "example_id": example_counter,
                 "query": query,
                 "ground_truth": deps,
-                "bm25_signature": {}
+                "bm25_signature": {},
             }
             for k in sig_ks:
-                mk = bm25_topk_strings(sig_order, k,methods_corpus_strings)
+                mk = bm25_topk_strings(sig_order, k, methods_corpus_strings)
                 mk = filter_out_target_method(mk, target_method)
                 num_pred = len(mk)
                 recall_info = compute_task_recall(deps, build_context_code_list(mk))
@@ -415,7 +447,7 @@ def analyze_project(project_dir):
                 "example_id": example_counter,
                 "query": query,
                 "ground_truth": deps,
-                "bm25_code": {}
+                "bm25_code": {},
             }
             for k in sig_ks:
                 mk = bm25_topk_strings(code_order, k, methods_corpus_strings)
@@ -450,7 +482,7 @@ def analyze_project(project_dir):
                 "example_id": example_counter,
                 "query": query,
                 "ground_truth": deps,
-                "bm25_desc": {}
+                "bm25_desc": {},
             }
             for k in sig_ks:
                 mk = bm25_topk_strings(desc_order, k, methods_desc_corpus_strings)
@@ -485,7 +517,7 @@ def analyze_project(project_dir):
                 }
             desc_records.append(desc_record)
 
-        out_dir = os.path.dirname(FILTERED_PATH)
+        out_dir = os.path.dirname(filtered_path)
         sig_path = os.path.join(out_dir, "diagnostic_bm25_signature.jsonl")
         code_path = os.path.join(out_dir, "diagnostic_bm25_code.jsonl")
         desc_path = os.path.join(out_dir, "diagnostic_bm25_desc.jsonl")
@@ -500,12 +532,22 @@ def analyze_project(project_dir):
                 do.write(json.dumps(rec, ensure_ascii=False) + "\n")
         
         # Save the updated cache
-        with open(refined_queries_cache_path, 'w') as f:
+        with open(refined_queries_cache_path, "w") as f:
             json.dump(refined_queries_cache, f, indent=4)
 
         # ===================== DIAGNOSTIC JSON CODE END =====================
         def safe_div(a, b):
             return (a / b) if b != 0 else 0
+
+        # 将聚合指标保存下来，便于批量统计
+        project_metrics: Dict[str, Any] = {
+            "project_dir": project_dir,
+            "num_examples": example_counter,
+            "top_gt": top_gt,
+            "signature": {},
+            "code": {},
+            "desc": {},
+        }
 
         # ---- print BM25 signature-based metrics ----
         print("BM25 (signature) results:")
@@ -515,6 +557,14 @@ def analyze_project(project_dir):
             denom = safe_div(m, p) + safe_div(m, top_gt)
             f1_val = (2 * safe_div(m, p) * safe_div(m, top_gt) / denom) if denom > 0 else 0
             print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%, F1={f1_val*100:.2f}%")
+            project_metrics["signature"][k] = {
+                "match": m,
+                "pred": p,
+                "top_gt": top_gt,
+                "P": safe_div(m, p),
+                "R": safe_div(m, top_gt),
+                "F1": f1_val,
+            }
         print("--------------------------------")
 
         # ---- print BM25 code-based metrics ----
@@ -526,6 +576,14 @@ def analyze_project(project_dir):
             denom = safe_div(m, p) + safe_div(m, top_gt)
             f1_val = (2 * safe_div(m, p) * safe_div(m, top_gt) / denom) if denom > 0 else 0
             print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%, F1={f1_val*100:.2f}%，{(safe_div(m, top_gt))*100:.2f}%({m}/{p})")
+            project_metrics["code"][k] = {
+                "match": m,
+                "pred": p,
+                "top_gt": top_gt,
+                "P": safe_div(m, p),
+                "R": safe_div(m, top_gt),
+                "F1": f1_val,
+            }
         print("--------------------------------")
 
         # ---- print BM25 desc-based metrics ----
@@ -536,10 +594,28 @@ def analyze_project(project_dir):
             denom = safe_div(m, p) + safe_div(m, top_gt)
             f1_val = (2 * safe_div(m, p) * safe_div(m, top_gt) / denom) if denom > 0 else 0
             print(f"Top{k} Match: {m}, Pred: {p}, P={(safe_div(m, p))*100:.2f}%, R={(safe_div(m, top_gt))*100:.2f}%, F1={f1_val*100:.2f}%")
+            project_metrics["desc"][k] = {
+                "match": m,
+                "pred": p,
+                "top_gt": top_gt,
+                "P": safe_div(m, p),
+                "R": safe_div(m, top_gt),
+                "F1": f1_val,
+            }
         print("--------------------------------")
-    
+
     print(f"Analysis completed for {project_dir}")
+    return project_metrics
 
 
 if __name__ == "__main__":
-    analyze_project(PROJECT_DIR)
+    analyze_project(
+        PROJECT_DIR,
+        methods_csv=METHODS_CSV,
+        methods_desc_csv=METHODS_DESC_CSV,
+        filtered_path=FILTERED_PATH,
+        refined_queries_cache_path=REFINED_QUERIES_CACHE_PATH,
+        enre_json=ENRE_JSON,
+        data_jsonl=DATA_JSONL,
+        use_refined_query=USE_REFINED_QUERY,
+    )
