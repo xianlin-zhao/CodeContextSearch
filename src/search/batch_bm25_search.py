@@ -8,7 +8,7 @@ from bm25_search import analyze_project
 
 
 EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
-SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
+SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/Source_Code"
 DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
 DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
 DEFAULT_OUTPUT_CSV = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow/bm25_batch_metrics.csv"

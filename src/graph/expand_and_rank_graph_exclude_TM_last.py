@@ -1,8 +1,8 @@
 import os
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4"
 
 import sys
-sys.path.append("..")
 import json
 from collections import defaultdict
 
@@ -11,20 +11,25 @@ import numpy as np
 import pandas as pd
 import torch
 
-sys.path.append("/data/data_public/riverbag/CodeContextSearch/src")
+# Ensure CodeContextSearch/src is on sys.path for namespace-package imports (graph.*, utils.*, etc.)
+_SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
 from graph.embedding_backends import create_embedding_backend
 from graph.class_code_extract import *
 
+# 默认路径参数，仅用于命令行直接运行本脚本时的便捷入口；
+# 实际批量实验时应通过函数参数传入这些路径。
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
 FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
 OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all"
-PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/System" #mrjob
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Internet" #boto
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Database"  #alembic
-#PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Security" #diffprivlib
-# PROJECT_PATH = "/data/lowcode_public/DevEval/Source_Code/Multimedia" #modipy
+PROJECT_PATH = "/data/zxl/Search2026/Datasets/Source_Code/System/mrjob" #mrjob
+# PROJECT_PATH = "/data/zxl/Search2026/Datasets/Source_Code/Internet/boto" #boto
+# PROJECT_PATH = "/data/zxl/Search2026/Datasets/Source_Code/Database/alembic"  #alembic
+#PROJECT_PATH = "/data/zxl/Search2026/Datasets/Source_Code/Security/diffprivlib" #diffprivlib
+# PROJECT_PATH = "/data/zxl/Search2026/Datasets/Source_Code/Multimedia/modipy" #modipy
 TOP_KS = [10, 15, 20]
 
 ENABLE_EXTRA_EXPANDED_NODE_BONUS = True
@@ -93,7 +98,7 @@ def load_enre_json(json_path):
     return valid_nodes, qname_to_id, id_to_qname, adj, reverse_adj
 
 
-def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
+def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname, project_path: str):
     for node in G.nodes():
         if 'src_type' not in G.nodes[node]:
             G.nodes[node]['src_type'] = 'original'
@@ -209,7 +214,7 @@ def expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname):
         src_node_info = valid_nodes[enre_id]
         qname = id_to_qname.get(enre_id, "")
         file_path = src_node_info.get('File', "")
-        class_code = get_class_code_default(PROJECT_PATH, file_path, qname) if file_path else ""
+        class_code = get_class_code_default(project_path, file_path, qname) if file_path else ""
         if DEBUG_CLASS_SKELETON:
             if class_code:
                 preview_lines = class_code.strip().split("\n")[:20]
@@ -285,6 +290,7 @@ def process_graph_dir(
     id_to_qname,
     adj,
     reverse_adj,
+    project_path: str,
 ):
     def is_truthy(v):
         if isinstance(v, bool):
@@ -333,7 +339,7 @@ def process_graph_dir(
 
         print(f"Processing Task {task_id}: Graph has {len(G.nodes)} nodes and {len(G.edges)} edges.")
 
-        expanded_G = expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname)
+        expanded_G = expand_graph(G, valid_nodes, adj, reverse_adj, method_map, id_to_qname, project_path)
         print(f"  -> Expanded: {len(expanded_G.nodes)} nodes and {len(expanded_G.edges)} edges.")
 
         mid_gml_filename = f"task_{task_id}_mid.gml"
@@ -486,26 +492,60 @@ def process_graph_dir(
             print(f"  -> Saved top-{K} subgraph to {rank_gml_path}")
 
 def main():
-    embedder = create_embedding_backend(kind=EMBEDDING_BACKEND_KIND)
-    os.makedirs(OUTPUT_GRAPH_PATH, exist_ok=True)
+    run_project(
+        methods_csv=METHODS_CSV,
+        enre_json=ENRE_JSON,
+        filtered_path=FILTERED_PATH,
+        output_graph_path=OUTPUT_GRAPH_PATH,
+        project_path=PROJECT_PATH,
+        top_ks=TOP_KS,
+        embedding_backend_kind=EMBEDDING_BACKEND_KIND,
+        enable_extra_expanded_node_bonus=ENABLE_EXTRA_EXPANDED_NODE_BONUS,
+        debug_class_skeleton=DEBUG_CLASS_SKELETON,
+    )
 
-    # 1. Load Data
-    method_map = load_methods_csv(METHODS_CSV)
-    valid_nodes, qname_to_id, id_to_qname, adj, reverse_adj = load_enre_json(ENRE_JSON)
-    
+
+def run_project(
+    *,
+    methods_csv: str,
+    enre_json: str,
+    filtered_path: str,
+    output_graph_path: str,
+    project_path: str,
+    top_ks: list[int] | None = None,
+    embedding_backend_kind: str = EMBEDDING_BACKEND_KIND,
+    enable_extra_expanded_node_bonus: bool = ENABLE_EXTRA_EXPANDED_NODE_BONUS,
+    debug_class_skeleton: bool = DEBUG_CLASS_SKELETON,
+) -> None:
+    """
+    对单个项目进行图扩展与排序（读取 build_graph 产出的 *_ori.gml），并输出 PageRank 子图 gml。
+    """
+    global TOP_KS, ENABLE_EXTRA_EXPANDED_NODE_BONUS, DEBUG_CLASS_SKELETON
+    if top_ks is not None:
+        TOP_KS = top_ks
+    ENABLE_EXTRA_EXPANDED_NODE_BONUS = enable_extra_expanded_node_bonus
+    DEBUG_CLASS_SKELETON = debug_class_skeleton
+
+    embedder = create_embedding_backend(kind=embedding_backend_kind)
+    os.makedirs(output_graph_path, exist_ok=True)
+
+    method_map = load_methods_csv(methods_csv)
+    valid_nodes, qname_to_id, id_to_qname, adj, reverse_adj = load_enre_json(enre_json)
+
     tasks = []
     print("Loading Tasks...")
-    with open(FILTERED_PATH, 'r') as f:
+    with open(filtered_path, "r") as f:
         for line in f:
             if line.strip():
                 tasks.append(json.loads(line))
     print(f"Loaded {len(tasks)} tasks.")
-    
-    graph_dirs = get_graph_input_dirs(OUTPUT_GRAPH_PATH)
+
+    graph_dirs = get_graph_input_dirs(output_graph_path)
     for graph_dir in graph_dirs:
         if not os.path.isdir(graph_dir):
             continue
         print(f"Processing graph directory: {graph_dir}")
+
         process_graph_dir(
             graph_dir=graph_dir,
             tasks=tasks,
@@ -515,6 +555,7 @@ def main():
             id_to_qname=id_to_qname,
             adj=adj,
             reverse_adj=reverse_adj,
+            project_path=project_path,
         )
 
 if __name__ == "__main__":
