@@ -4,84 +4,86 @@ import networkx as nx
 # import matplotlib.pyplot as plt # Not essential for just building/saving, but good if visualization needed
 import os
 from collections import defaultdict
+from typing import Dict, Any
 
 
+# 默认路径参数，仅用于命令行直接运行本脚本时的便捷入口；
+# 实际批量实验时应通过函数参数传入这些路径。
 METHODS_CSV = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
 ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
-FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl" 
-DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/diagnostic_***feature.jsonl"    
+FILTERED_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+DIAGNOSTIC_JSONL = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/diagnostic_***feature.jsonl"
 OUTPUT_GRAPH_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all"
 
 REMOVE_FIRST_DOT_PREFIX = False
 PREFIX = "mrjob"  # 如果移除前缀的选项为True，这里记得指定项目的名称作为前缀
-#用来控制我们选几个相似的method（用来后面的类调用链预测加分的）
+# 用来控制我们选几个相似的method（用来后面的类调用链预测加分的）
 SIMILAR_TOPK = 3
 
 
-# 读入之前处理的所有method信息
-print("Loading METHODS_CSV...")
-df_methods = pd.read_csv(METHODS_CSV)
-method_sig_to_info = {}
-method_clean_sig_to_info = {}
-for index, row in df_methods.iterrows():
-    # Ensure we handle potential NaN values or convert to string if needed
-    sig = str(row['method_signature'])
-    method_sig_to_info[sig] = row.to_dict()
-    clean_sig = sig.split("(", 1)[0] if "(" in sig else sig
-    method_clean_sig_to_info[clean_sig] = row.to_dict()
-print(f"Loaded {len(method_sig_to_info)} methods from CSV.")
+def _load_methods_info(methods_csv: str):
+    print("Loading METHODS_CSV...")
+    df_methods = pd.read_csv(methods_csv)
+    method_sig_to_info = {}
+    method_clean_sig_to_info = {}
+    for _, row in df_methods.iterrows():
+        sig = str(row["method_signature"])
+        method_sig_to_info[sig] = row.to_dict()
+        clean_sig = sig.split("(", 1)[0] if "(" in sig else sig
+        method_clean_sig_to_info[clean_sig] = row.to_dict()
+    print(f"Loaded {len(method_sig_to_info)} methods from CSV.")
+    return method_sig_to_info, method_clean_sig_to_info
 
 
-# 读入之前生成的enre_report.json，处理代码元素及其相互关系
-print("Loading ENRE_JSON and processing variables...")
-with open(ENRE_JSON, 'r') as f:
-    enre_data = json.load(f)
+def _load_enre_graph(enre_json: str):
+    print("Loading ENRE_JSON and processing variables...")
+    with open(enre_json, "r") as f:
+        enre_data = json.load(f)
 
-variables = enre_data.get('variables', [])
-cells = enre_data.get('cells', [])
+    variables = enre_data.get("variables", [])
+    cells = enre_data.get("cells", [])
 
-valid_nodes = {} # id -> node_data
-id_to_qname = {} # id -> qualifiedName
-qname_to_id = {} # qualifiedName -> id
+    valid_nodes = {}  # id -> node_data
+    id_to_qname = {}  # id -> qualifiedName
+    qname_to_id = {}  # qualifiedName -> id
 
-for var in variables:
-    cat = var.get('category', '')
-    # 如果category是Unresolved或Unresolved开头，则忽略
-    if not cat.startswith('Un'):
-        vid = var['id']
-        qname = var['qualifiedName']
-        
-        valid_nodes[vid] = var
-        id_to_qname[vid] = qname
-        qname_to_id[qname] = vid
-        
-print(f"Filtered {len(valid_nodes)} valid nodes from ENRE_JSON.")
+    for var in variables:
+        cat = var.get("category", "")
+        # 如果category是Unresolved或Unresolved开头，则忽略
+        if not cat.startswith("Un"):
+            vid = var["id"]
+            qname = var["qualifiedName"]
+            valid_nodes[vid] = var
+            id_to_qname[vid] = qname
+            qname_to_id[qname] = vid
 
+    print(f"Filtered {len(valid_nodes)} valid nodes from ENRE_JSON.")
 
-print("Processing relations in ENRE_JSON...")
-edges = []
-seen_edges = set()
-for cell in cells:
-    src = cell.get('src')
-    dest = cell.get('dest')
-    values = cell.get('values', {})
-    kind = values.get('kind')
-    
-    # 把所有有效边加入edges
-    if src in valid_nodes and dest in valid_nodes:
-        edge_tuple = (src, dest, kind)
-        if edge_tuple not in seen_edges:
-            seen_edges.add(edge_tuple)
-            edges.append((src, dest, kind))
-        
-print(f"Loaded {len(edges)} valid edges.")
+    print("Processing relations in ENRE_JSON...")
+    edges = []
+    seen_edges = set()
+    for cell in cells:
+        src = cell.get("src")
+        dest = cell.get("dest")
+        values = cell.get("values", {})
+        kind = values.get("kind")
 
+        # 把所有有效边加入edges
+        if src in valid_nodes and dest in valid_nodes:
+            edge_tuple = (src, dest, kind)
+            if edge_tuple not in seen_edges:
+                seen_edges.add(edge_tuple)
+                edges.append((src, dest, kind))
 
-print("Graph construction logic needs adjacency list...")
-# Build adjacency for whole graph
-adj = defaultdict(list)
-for src, dest, kind in edges:
-    adj[src].append((dest, kind))
+    print(f"Loaded {len(edges)} valid edges.")
+
+    print("Graph construction logic needs adjacency list...")
+    adj = defaultdict(list)
+    for src, dest, kind in edges:
+        adj[src].append((dest, kind))
+
+    return valid_nodes, id_to_qname, qname_to_id, adj
+
 
 def _maybe_insert_init_in_target_method(target_method):
     if not target_method:
@@ -103,11 +105,21 @@ def _maybe_insert_init_in_target_method(target_method):
     parts.insert(insert_at, "__init__")
     return ".".join(parts)
 
-def build_graph():
+def build_graph(
+    *,
+    methods_csv: str,
+    enre_json: str,
+    filtered_path: str,
+    diagnostic_jsonl: str,
+    output_graph_path: str,
+) -> Dict[str, Any]:
+    method_sig_to_info, method_clean_sig_to_info = _load_methods_info(methods_csv)
+    valid_nodes, id_to_qname, qname_to_id, adj = _load_enre_graph(enre_json)
+
     print("Step 1: Loading FILTERED_PATH for task info...")
     tasks_info = []
     # 读入一个项目的所有任务，每行是一个任务
-    with open(FILTERED_PATH, 'r') as f:
+    with open(filtered_path, "r") as f:
         for line in f:
             if line.strip():
                 tasks_info.append(json.loads(line))
@@ -116,12 +128,12 @@ def build_graph():
     print("Step 2 Loading DIAGNOSTIC_JSONL and Building Graph...")
     diag_records = []
     # 读入之前搜索的结果（包含是否match等指标）
-    with open(DIAGNOSTIC_JSONL, 'r') as f:
+    with open(diagnostic_jsonl, "r") as f:
         for line in f:
             if line.strip():
                 diag_records.append(json.loads(line))
     
-    os.makedirs(OUTPUT_GRAPH_PATH, exist_ok=True)
+    os.makedirs(output_graph_path, exist_ok=True)
 
     total_tasks = len(diag_records)
     tasks_same_file_nonzero = 0
@@ -252,7 +264,7 @@ def build_graph():
         if similar_method_count != 0:
             tasks_similar_method_nonzero += 1
 
-        out_file = os.path.join(OUTPUT_GRAPH_PATH, f"task_{example_id}_ori.gml")
+        out_file = os.path.join(output_graph_path, f"task_{example_id}_ori.gml")
         nx.write_gml(G, out_file)
         print(f"Saved graph for task {example_id} with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
 
@@ -261,5 +273,19 @@ def build_graph():
         flush=True,
     )
 
+    return {
+        "total_tasks": total_tasks,
+        "same_file_nonzero_tasks": tasks_same_file_nonzero,
+        "same_feature_nonzero_tasks": tasks_same_feature_nonzero,
+        "similar_method_nonzero_tasks": tasks_similar_method_nonzero,
+    }
+
+
 if __name__ == "__main__":
-    build_graph()
+    build_graph(
+        methods_csv=METHODS_CSV,
+        enre_json=ENRE_JSON,
+        filtered_path=FILTERED_PATH,
+        diagnostic_jsonl=DIAGNOSTIC_JSONL,
+        output_graph_path=OUTPUT_GRAPH_PATH,
+    )
