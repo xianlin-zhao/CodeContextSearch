@@ -6,12 +6,14 @@ import sys
 import networkx as nx
 import pandas as pd
 from collections import defaultdict
+from typing import Any, Dict, List, Optional
 
-# Configuration
-GRAPH_RESULTS_DIR = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all'
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl'
-OUTPUT_REPORT_FILE = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/303_expand_graph_match_comparison_report.csv'
-ENRE_JSON = '/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json'
+# 默认路径参数，仅用于命令行直接运行本脚本时的便捷入口；
+# 实际批量实验时应通过 run_compare_recall(...) 传入这些路径。
+GRAPH_RESULTS_DIR = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/graph_results_***all"
+FILTERED_JSONL_PATH = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+OUTPUT_REPORT_FILE = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/303_expand_graph_match_comparison_report.csv"
+ENRE_JSON = "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
 
 DEBUG = True
 DEBUG_LOG_FILE = os.path.join(os.path.dirname(OUTPUT_REPORT_FILE), "compare_graph_recall.debug.log")
@@ -22,8 +24,15 @@ module_enre = set()  # 模块(其实是python文件)，有时候dependency里会
 package_enre = set()  # 包，会出现与module类似的情况
 
 
-# 读取enre的解析结果文件，重点读取Variable, Unresolved Attribute, Module, Package类型
-def load_enre_elements(json_path):
+def clear_enre_elements() -> None:
+    """清空 ENRE 元素集合。批量跑多项目时，每切换项目前调用。"""
+    variables_enre.clear()
+    unresolved_attribute_enre.clear()
+    module_enre.clear()
+    package_enre.clear()
+
+
+def load_enre_elements(json_path: str) -> None:
     if not os.path.exists(json_path):
         print(f"Warning: ENRE JSON file not found at {json_path}")
         return
@@ -162,20 +171,20 @@ def compute_task_recall(dependency, searched_context_code_list):
         "recall": recall,
     }
 
-def load_ground_truth(task_id):
+def load_ground_truth(task_id: str, filtered_jsonl_path: str) -> List[str]:
     """
     Loads ground truth dependency symbols for a specific task ID from the JSONL file.
     Returns a list of symbols.
     """
     dep = []
-    if not os.path.exists(FILTERED_JSONL_PATH):
-        print(f"Warning: Filtered JSONL file not found at {FILTERED_JSONL_PATH}")
+    if not os.path.exists(filtered_jsonl_path):
+        print(f"Warning: Filtered JSONL file not found at {filtered_jsonl_path}")
         return dep
 
     try:
         target_line_num = int(task_id)
         current_line_num = 0
-        with open(FILTERED_JSONL_PATH, 'r') as f:
+        with open(filtered_jsonl_path, "r") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -250,19 +259,33 @@ def _redirect_stdout_stderr_to_file(log_file: str):
         os.makedirs(log_dir, exist_ok=True)
     return open(log_file, "w", encoding="utf-8", buffering=1)
 
-def main():
+
+def run_compare_recall(
+    *,
+    graph_results_dir: str,
+    filtered_jsonl_path: str,
+    output_report_file: str,
+    enre_json: str,
+    debug: bool = DEBUG,
+    debug_log_file: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    对单个项目运行图召回率对比：读取 ori/mid/rank GML，与 ground truth 对比，写 CSV 和 log，并返回完整统计供批量汇总。
+    """
     stdout0, stderr0 = sys.stdout, sys.stderr
     log_fp = None
-    if DEBUG:
-        log_fp = _redirect_stdout_stderr_to_file(DEBUG_LOG_FILE)
+    if debug:
+        log_file = debug_log_file or os.path.join(os.path.dirname(output_report_file), "compare_graph_recall.debug.log")
+        log_fp = _redirect_stdout_stderr_to_file(log_file)
         sys.stdout = log_fp
         sys.stderr = log_fp
 
-    load_enre_elements(ENRE_JSON)
+    clear_enre_elements()
+    load_enre_elements(enre_json)
 
     # 1. Group files by task_id
     # Pattern: task_{id}_{type}.gml
-    base_files = glob.glob(os.path.join(GRAPH_RESULTS_DIR, "*.gml"))
+    base_files = glob.glob(os.path.join(graph_results_dir, "*.gml"))
     task_files = defaultdict(dict)
 
     for f in base_files:
@@ -273,10 +296,10 @@ def main():
             file_type = match.group(2)
             task_files[task_id][file_type] = f
 
-    rank_subdirs = list_rank_subdirs(GRAPH_RESULTS_DIR)
+    rank_subdirs = list_rank_subdirs(graph_results_dir)
     rank_files_by_dir = {name: {} for name in rank_subdirs}
     for name in rank_subdirs:
-        rank_dir = os.path.join(GRAPH_RESULTS_DIR, name)
+        rank_dir = os.path.join(graph_results_dir, name)
         for f in glob.glob(os.path.join(rank_dir, "*.gml")):
             basename = os.path.basename(f)
             match = re.search(r'task_(\d+)_rank\.gml', basename)
@@ -317,7 +340,7 @@ def main():
         types = task_files[task_id]
         
         # Load GT
-        dep = load_ground_truth(task_id)
+        dep = load_ground_truth(task_id, filtered_jsonl_path)
         print(f"task_id: {task_id}, dep: {dep}")
         gt_total = len(set(dep))
 
@@ -401,8 +424,8 @@ def main():
     existing_cols = [c for c in ordered_cols if c in df.columns]
     remaining_cols = [c for c in df.columns if c not in existing_cols]
     df = df[existing_cols + remaining_cols]
-    df.to_csv(OUTPUT_REPORT_FILE, index=False)
-    print(f"\nReport saved to: {OUTPUT_REPORT_FILE}")
+    df.to_csv(output_report_file, index=False)
+    print(f"\nReport saved to: {output_report_file}")
 
     # 4. Statistics Summary
     total_tasks = len(results)
@@ -507,6 +530,67 @@ def main():
         sys.stdout = stdout0
         sys.stderr = stderr0
         log_fp.close()
+
+    # Build return stats for batch summary
+    stats: Dict[str, Any] = {
+        "total_tasks": len(results),
+        "results": results,
+        "sum_gt": 0,
+        "ori_match": 0,
+        "ori_pred": 0,
+        "mid_match": 0,
+        "mid_pred": 0,
+        "mid_improved": 0,
+        "mid_decreased": 0,
+        "rank_improved_decreased": {},
+        "rank_match_by_dir": {},
+        "rank_pred_by_dir": dict(sum_rank_pred_by_dir) if results else {},
+    }
+    if results:
+        stats["sum_gt"] = sum(r["dependency_total"] for r in results)
+        stats["ori_match"] = sum(r["ori_hit"] for r in results)
+        stats["mid_match"] = sum(r["mid_hit"] for r in results)
+        stats["ori_pred"] = sum_ori_pred
+        stats["mid_pred"] = sum_mid_pred
+        stats["rank_pred_by_dir"] = dict(sum_rank_pred_by_dir)
+
+        def is_valid_recall(x):
+            return isinstance(x, (int, float))
+
+        stats["mid_improved"] = sum(
+            1 for r in results
+            if is_valid_recall(r.get("mid_recall")) and is_valid_recall(r.get("ori_recall")) and r["mid_recall"] > r["ori_recall"]
+        )
+        stats["mid_decreased"] = sum(
+            1 for r in results
+            if is_valid_recall(r.get("mid_recall")) and is_valid_recall(r.get("ori_recall")) and r["mid_recall"] < r["ori_recall"]
+        )
+        for name in rank_subdirs:
+            col = sanitize_col(name)
+            improved = sum(
+                1 for r in results
+                if is_valid_recall(r.get(f"rank_recall__{col}")) and is_valid_recall(r.get("ori_recall")) and r[f"rank_recall__{col}"] > r["ori_recall"]
+            )
+            decreased = sum(
+                1 for r in results
+                if is_valid_recall(r.get(f"rank_recall__{col}")) and is_valid_recall(r.get("ori_recall")) and r[f"rank_recall__{col}"] < r["ori_recall"]
+            )
+            stats["rank_improved_decreased"][name] = (improved, decreased)
+            stats["rank_match_by_dir"][name] = sum(r.get(f"rank_hit__{col}", 0) for r in results)
+
+    return stats
+
+
+def main() -> None:
+    run_compare_recall(
+        graph_results_dir=GRAPH_RESULTS_DIR,
+        filtered_jsonl_path=FILTERED_JSONL_PATH,
+        output_report_file=OUTPUT_REPORT_FILE,
+        enre_json=ENRE_JSON,
+        debug=DEBUG,
+        debug_log_file=DEBUG_LOG_FILE,
+    )
+
 
 if __name__ == "__main__":
     main()
