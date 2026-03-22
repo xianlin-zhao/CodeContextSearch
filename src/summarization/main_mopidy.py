@@ -260,9 +260,9 @@ def main(project_root: str, output_dir: str):
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     # 待总结的项目路径
-    project_root = "/data/data_public/riverbag/DevEval/Communications/Telethon"
+    project_root = "/data/zxl/Search2026/Datasets/Source_Code/Database/alembic/alembic"
     # repoSummary结果的保存路径
-    output_dir = "/data/data_public/riverbag/testRepoSummaryOut/DevEval/Communications/Telethon"
+    output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/alembic/0321"
 
     main(
         project_root=project_root,

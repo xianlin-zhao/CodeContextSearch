@@ -101,7 +101,10 @@ def enre_wrapper(root_path: Path, compatible_format: bool, need_cfg: bool, need_
     builtins_path = Path(builtin_module) if builtin_module else None
     manager = AnalyzeManager(root_path, builtins_path)
     manager.work_flow()
-    out_path = Path(f"{project_name}-report-enre.json")
+
+    # enre的报告文件，保存在output_dir目录下，命名就叫report-enre.json，不加项目名，防止后续大小写等问题
+    out_path = output_dir / "report-enre.json"
+
     if need_cfg:
         print("dependency analysis finished, now running control flow analysis")
         resolver = cfg_wrapper(root_path, manager.scene)
@@ -154,6 +157,7 @@ def extract_method_code(file_path: str, start_line: int, end_line: int, project_
         # 2. 尝试相对于项目根目录的路径
         if not path and project_root:
             potential_path = project_root / file_path
+            print(f"potential_path: {potential_path}")
             tried_paths.append(str(potential_path.absolute()))
             if potential_path.exists():
                 path = potential_path
@@ -441,6 +445,7 @@ def generate_csv_files(dep_repr: DepRepr, package_db = None, project_root: Path 
     #         ])
     
     # 生成 methods.csv
+    project_root = project_root.parent
     with open(output_dir / "methods.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["ID", "method_signature", "func_file", "method_code"])

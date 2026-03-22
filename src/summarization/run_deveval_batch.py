@@ -12,6 +12,11 @@ from main_mopidy import main as summarize_project
 
 SKIP_PROJECTS = {
     ("Communications", "Telethon"),
+    ("Internet", "pyramid"),
+    ("System", "pyinfra"),
+    ("Internet", "kinto"),
+    ("Security", "capirca"),
+    ("Database", "sqlitedict"),
 }
 
 

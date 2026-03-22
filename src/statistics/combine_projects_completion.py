@@ -15,11 +15,11 @@ DEFAULT_EXCEL = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/
 # base目录，里面会包含各个项目的文件夹，项目文件夹下会有各自的代码补全结果文件
 DEFAULT_BASE_COMPLETION_OUT = "/data/zxl/Search2026/outputData/devEvalCompletionOut"
 # 可能的子目录，比如项目文件夹下嵌套着某个文件夹，代码补全结果文件在这个文件夹里(这里为空表示直接在项目文件夹下)
-DEFAULT_SUBFOLDER = "0303_full"
+DEFAULT_SUBFOLDER = "0318"
 # 要合并哪个文件(哪种策略生成的代码)
-DEFAULT_JSONL_FILENAME = "graph_rag_completion.jsonl"
+DEFAULT_JSONL_FILENAME = "repograph_completion.jsonl"
 # 合并后的jsonl路径
-OUTPUT_COMBINED_JSONL = "/data/zxl/Search2026/outputData/devEvalCompletionOut/0303_small_test/graph_rag_completion.jsonl"
+OUTPUT_COMBINED_JSONL = "/data/zxl/Search2026/outputData/devEvalCompletionOut/0318_repograph/combined_repograph_completion.jsonl"
 
 
 def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
