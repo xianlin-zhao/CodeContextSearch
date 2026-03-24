@@ -9,12 +9,20 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_DEV_EVAL_DIR = os.path.dirname(os.path.abspath(__file__))
+_SRC_ROOT = os.path.normpath(os.path.join(_DEV_EVAL_DIR, "..", ".."))
+for _p in (_SRC_ROOT, _DEV_EVAL_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import pandas as pd
 
 from base_rag_gen import generate_completions
 from llm_clients import BackendName
+from utils.excel_project_list import (
+    normalize_excel_project_columns,
+    resolve_enre_json_cell,
+)
 from utils.task_recall import clear_enre_elements, load_enre_elements
 
 
@@ -32,23 +40,6 @@ DEFAULT_BASE_SEARCH_OUT = "/data/data_public/riverbag/testRepoSummaryOut/211"
 DEFAULT_BASE_COMPLETION_OUT = "/data/zxl/Search2026/outputData/devEvalCompletionOut"
 DEFAULT_BASE_ENRE = "/data/data_public/riverbag/testRepoSummaryOut/211"
 SUBFOLDER = "0303_full"
-
-
-def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    col_map = {}
-    for c in df.columns:
-        c_str = str(c).strip()
-        if c_str in ("项目名称", "project_name"):
-            col_map[c] = "project_name"
-        elif c_str in ("项目根目录", "project_root", "GRAPH_PROJECT_PATH"):
-            col_map[c] = "project_root"
-        elif c_str in ("ENRE路径", "enre_json"):
-            col_map[c] = "enre_json"
-    return df.rename(columns=col_map)
-
-
-def _default_enre_path(project_name: str, base_enre: str) -> str:
-    return os.path.join(base_enre, project_name, f"{project_name}-report-enre.json")
 
 
 def run_one_project(
@@ -139,7 +130,7 @@ def main() -> None:
     max_tasks = args.max_tasks if args.max_tasks and args.max_tasks > 0 else None
 
     df = pd.read_excel(args.excel_path, sheet_name=args.sheet_name)
-    df = _normalize_column_names(df)
+    df = normalize_excel_project_columns(df)
 
     if "project_name" not in df.columns or "project_root" not in df.columns:
         print("Error: Excel 需包含「项目名称」与「项目根目录」列（或 project_name / project_root）", file=sys.stderr)
@@ -150,11 +141,7 @@ def main() -> None:
         project_root = str(row["project_root"]).strip()
         if not project_name or not project_root:
             continue
-        enre_json = row.get("enre_json")
-        if pd.isna(enre_json) or not str(enre_json).strip():
-            enre_json = _default_enre_path(project_name, args.base_enre)
-        else:
-            enre_json = str(enre_json).strip()
+        enre_json = resolve_enre_json_cell(row, project_name, args.base_enre)
 
         run_one_project(
             project_name=project_name,

@@ -11,6 +11,10 @@ from expand_and_rank_graph_exclude_TM_last import run_project
 _SRC_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
+from utils.excel_project_list import (
+    normalize_excel_project_columns,
+    resolve_enre_json_cell,
+)
 from utils.project_rel_from_root import ProjectRelMode, project_rel_from_project_root
 
 
@@ -18,29 +22,12 @@ EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/pro
 SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/Source_Code"
 # 截取两段（如 System/mrjob, for DevEval）或一段（如 litdata, for EvoCodeBench）
 PROJECT_REL_MODE: ProjectRelMode = "two_segments"
-DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
-DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
+DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
+DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
 # Which embedding backend to use for personalization scores.
 #   - "unixcoder": default, UniXcoder-based embeddings
 #   - "bge-code": use BAAI/bge-code-v1 via sentence-transformers
 EMBEDDING_BACKEND_KIND = "bge-code"
-
-
-def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    col_map = {}
-    for c in df.columns:
-        c_str = str(c).strip()
-        if c_str in ("项目名称", "project_name"):
-            col_map[c] = "project_name"
-        elif c_str in ("项目根目录", "project_root", "GRAPH_PROJECT_PATH"):
-            col_map[c] = "project_root"
-        elif c_str in ("ENRE路径", "enre_json"):
-            col_map[c] = "enre_json"
-    return df.rename(columns=col_map)
-
-
-def _default_enre_path(project_name: str, base_enre: str) -> str:
-    return os.path.join(base_enre, project_name, "report-enre.json")
 
 
 def run_one_project(
@@ -126,7 +113,7 @@ def main() -> None:
     )
 
     df = pd.read_excel(args.excel_path, sheet_name=args.sheet_name)
-    df = _normalize_column_names(df)
+    df = normalize_excel_project_columns(df)
 
     if "project_name" not in df.columns or "project_root" not in df.columns:
         raise SystemExit(
@@ -138,11 +125,7 @@ def main() -> None:
         project_root = str(row["project_root"]).strip()
         if not project_name or not project_root:
             continue
-        enre_json = row.get("enre_json")
-        if pd.isna(enre_json) or not str(enre_json).strip():
-            enre_json = _default_enre_path(project_name, args.base_enre)
-        else:
-            enre_json = str(enre_json).strip()
+        enre_json = resolve_enre_json_cell(row, project_name, args.base_enre)
 
         run_one_project(
             project_name=project_name,
