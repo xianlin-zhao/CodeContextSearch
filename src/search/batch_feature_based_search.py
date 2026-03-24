@@ -1,17 +1,25 @@
 import argparse
 import os
+import sys
 from typing import Any, Dict, List
+
+_SRC_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+if _SRC_ROOT not in sys.path:
+    sys.path.insert(0, _SRC_ROOT)
 
 import pandas as pd
 
 from feature_based_search import analyze_project, TOP_SM, CLUSTER_KS, USE_REFINED_QUERY
+from utils.project_rel_from_root import ProjectRelMode, project_rel_from_project_root
 
 
 EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
 SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/Source_Code"
-DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
-DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
-DEFAULT_OUTPUT_CSV = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow/feature_batch_metrics.csv"
+# 与 data.jsonl 中 project_path 一致：两段（如 System/mrjob, for DevEval）或一段（如 litdata, for EvoCodeBench）
+PROJECT_REL_MODE: ProjectRelMode = "two_segments"
+DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
+DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
+DEFAULT_OUTPUT_CSV = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor/feature_batch_metrics.csv"
 DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
 
 
@@ -32,34 +40,6 @@ def _default_enre_path(project_name: str, base_enre: str) -> str:
     return os.path.join(base_enre, project_name, "report-enre.json")
 
 
-def _project_dir_from_project_root(project_root: str, source_code_dir: str) -> str:
-    """
-    从 project_root 中截取 PROJECT_DIR（Source_Code 后面的两段路径）。
-
-    例如：
-    project_root = /data/lowcode_public/DevEval/Source_Code/System/mrjob/mrjob
-    PROJECT_DIR = System/mrjob
-    """
-    norm_root = os.path.normpath(project_root)
-    norm_source = os.path.normpath(source_code_dir)
-    parts = norm_root.split(os.sep)
-    try:
-        idx = parts.index(os.path.basename(norm_source))
-    except ValueError:
-        # 回退策略：直接取倒数三段中的中间两段
-        if len(parts) >= 3:
-            return "/".join(parts[-3:-1])
-        if len(parts) >= 2:
-            return "/".join(parts[-2:])
-        return parts[-1]
-
-    # 取 Source_Code 之后的两段
-    start = idx + 1
-    end = start + 2
-    sub_parts = parts[start:end]
-    return "/".join(sub_parts)
-
-
 def run_one_project(
     project_name: str,
     project_root: str,
@@ -67,8 +47,12 @@ def run_one_project(
     base_search_out: str,
     source_code_dir: str,
     data_jsonl: str,
+    *,
+    project_rel_mode: ProjectRelMode,
 ) -> Dict[str, Any]:
-    project_dir = _project_dir_from_project_root(project_root, source_code_dir)
+    project_dir = project_rel_from_project_root(
+        project_root, source_code_dir, mode=project_rel_mode
+    )
 
     project_base = os.path.join(base_search_out, project_name)
     feature_csv = os.path.join(project_base, "features.csv")
@@ -150,6 +134,12 @@ def main() -> None:
         help="DevEval 源代码根目录（用于从 project_root 截取 PROJECT_DIR）",
     )
     p.add_argument(
+        "--project_rel_mode",
+        choices=["two_segments", "one_segment"],
+        default=None,
+        help="相对 source_code_dir 截取几段：two_segments=两段，one_segment=一段；默认用脚本顶部 PROJECT_REL_MODE",
+    )
+    p.add_argument(
         "--data_jsonl",
         default=DATA_JSONL,
         help="DevEval 完整数据集 jsonl 路径",
@@ -161,6 +151,9 @@ def main() -> None:
     )
     p.add_argument("--sheet_name", default=0, help="Excel 工作表名或索引")
     args = p.parse_args()
+    project_rel_mode: ProjectRelMode = (
+        args.project_rel_mode if args.project_rel_mode is not None else PROJECT_REL_MODE
+    )
 
     df = pd.read_excel(args.excel_path, sheet_name=args.sheet_name)
     df = _normalize_column_names(df)
@@ -191,6 +184,7 @@ def main() -> None:
             base_search_out=args.base_search_out,
             source_code_dir=args.source_code_dir,
             data_jsonl=args.data_jsonl,
+            project_rel_mode=project_rel_mode,
         )
         if not metrics:
             continue

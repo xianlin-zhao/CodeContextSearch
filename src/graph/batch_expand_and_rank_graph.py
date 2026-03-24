@@ -1,15 +1,23 @@
 import argparse
 import os
+import sys
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4"
-from typing import Optional
 
 import pandas as pd
 
 from expand_and_rank_graph_exclude_TM_last import run_project
 
+_SRC_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+if _SRC_ROOT not in sys.path:
+    sys.path.insert(0, _SRC_ROOT)
+from utils.project_rel_from_root import ProjectRelMode, project_rel_from_project_root
+
 
 EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
 SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/Source_Code"
+# 截取两段（如 System/mrjob, for DevEval）或一段（如 litdata, for EvoCodeBench）
+PROJECT_REL_MODE: ProjectRelMode = "two_segments"
 DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
 DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
 # Which embedding backend to use for personalization scores.
@@ -35,32 +43,6 @@ def _default_enre_path(project_name: str, base_enre: str) -> str:
     return os.path.join(base_enre, project_name, "report-enre.json")
 
 
-def _project_dir_from_project_root(project_root: str, source_code_dir: str) -> str:
-    """
-    从 project_root 中截取 PROJECT_PATH（Source_Code 后面的两段路径）。
-
-    例如：
-    project_root = /data/lowcode_public/DevEval/Source_Code/System/mrjob/mrjob
-    PROJECT_PATH = System/mrjob
-    """
-    norm_root = os.path.normpath(project_root)
-    norm_source = os.path.normpath(source_code_dir)
-    parts = norm_root.split(os.sep)
-    try:
-        idx = parts.index(os.path.basename(norm_source))
-    except ValueError:
-        if len(parts) >= 3:
-            return "/".join(parts[-3:-1])
-        if len(parts) >= 2:
-            return "/".join(parts[-2:])
-        return parts[-1]
-
-    start = idx + 1
-    end = start + 2
-    sub_parts = parts[start:end]
-    return "/".join(sub_parts)
-
-
 def run_one_project(
     *,
     project_name: str,
@@ -69,6 +51,7 @@ def run_one_project(
     base_search_out: str,
     source_code_dir: str,
     embedding_backend_kind: str,
+    project_rel_mode: ProjectRelMode,
 ) -> None:
     project_base = os.path.join(base_search_out, project_name)
     methods_csv = os.path.join(project_base, "methods.csv")
@@ -85,7 +68,9 @@ def run_one_project(
         print(f"[skip] {project_name}: graph dir not found at {output_graph_path}")
         return
 
-    project_rel = _project_dir_from_project_root(project_root, source_code_dir)
+    project_rel = project_rel_from_project_root(
+        project_root, source_code_dir, mode=project_rel_mode
+    )
     project_path = os.path.join(source_code_dir, project_rel)
 
     print(f"[run] {project_name} PROJECT_PATH={project_rel} (expand+rank)")
@@ -124,12 +109,21 @@ def main() -> None:
         help="DevEval 源代码根目录（用于从 project_root 截取 PROJECT_PATH）",
     )
     p.add_argument(
+        "--project_rel_mode",
+        choices=["two_segments", "one_segment"],
+        default=None,
+        help="相对 source_code_dir 截取几段；默认用脚本顶部 PROJECT_REL_MODE",
+    )
+    p.add_argument(
         "--embedding_backend_kind",
         default=EMBEDDING_BACKEND_KIND,
         choices=["unixcoder", "bge-code"],
     )
     p.add_argument("--sheet_name", default=0, help="Excel 工作表名或索引")
     args = p.parse_args()
+    project_rel_mode: ProjectRelMode = (
+        args.project_rel_mode if args.project_rel_mode is not None else PROJECT_REL_MODE
+    )
 
     df = pd.read_excel(args.excel_path, sheet_name=args.sheet_name)
     df = _normalize_column_names(df)
@@ -157,6 +151,7 @@ def main() -> None:
             base_search_out=args.base_search_out,
             source_code_dir=args.source_code_dir,
             embedding_backend_kind=args.embedding_backend_kind,
+            project_rel_mode=project_rel_mode,
         )
 
 
