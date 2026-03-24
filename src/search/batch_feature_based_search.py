@@ -29,7 +29,7 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _default_enre_path(project_name: str, base_enre: str) -> str:
-    return os.path.join(base_enre, project_name, f"{project_name}-report-enre.json")
+    return os.path.join(base_enre, project_name, "report-enre.json")
 
 
 def _project_dir_from_project_root(project_root: str, source_code_dir: str) -> str:
