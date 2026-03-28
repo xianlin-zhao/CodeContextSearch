@@ -1,35 +1,27 @@
 import argparse
 import os
+import sys
 from typing import Any, Dict, List
+
+_SRC_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+if _SRC_ROOT not in sys.path:
+    sys.path.insert(0, _SRC_ROOT)
 
 import pandas as pd
 
 from build_graph import build_graph, METHODS_CSV, ENRE_JSON, FILTERED_PATH, DIAGNOSTIC_JSONL, OUTPUT_GRAPH_PATH
-
-
-EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
-DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
-DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
-DEFAULT_OUTPUT_CSV = (
-    "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow/build_graph_batch_metrics.csv"
+from utils.excel_project_list import (
+    normalize_excel_project_columns,
+    resolve_enre_json_cell,
 )
 
 
-def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    col_map = {}
-    for c in df.columns:
-        c_str = str(c).strip()
-        if c_str in ("项目名称", "project_name"):
-            col_map[c] = "project_name"
-        elif c_str in ("项目根目录", "project_root", "GRAPH_PROJECT_PATH"):
-            col_map[c] = "project_root"
-        elif c_str in ("ENRE路径", "enre_json"):
-            col_map[c] = "enre_json"
-    return df.rename(columns=col_map)
-
-
-def _default_enre_path(project_name: str, base_enre: str) -> str:
-    return os.path.join(base_enre, project_name, f"{project_name}-report-enre.json")
+EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
+DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
+DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
+DEFAULT_OUTPUT_CSV = (
+    "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor/build_graph_batch_metrics.csv"
+)
 
 
 def run_one_project(
@@ -93,7 +85,7 @@ def main() -> None:
     args = p.parse_args()
 
     df = pd.read_excel(args.excel_path, sheet_name=args.sheet_name)
-    df = _normalize_column_names(df)
+    df = normalize_excel_project_columns(df)
 
     if "project_name" not in df.columns:
         raise SystemExit(
@@ -107,11 +99,7 @@ def main() -> None:
         project_name = str(row["project_name"]).strip()
         if not project_name:
             continue
-        enre_json = row.get("enre_json")
-        if pd.isna(enre_json) or not str(enre_json).strip():
-            enre_json = _default_enre_path(project_name, args.base_enre)
-        else:
-            enre_json = str(enre_json).strip()
+        enre_json = resolve_enre_json_cell(row, project_name, args.base_enre)
 
         metrics = run_one_project(
             project_name=project_name,

@@ -10,12 +10,17 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_DEV_EVAL_DIR = os.path.dirname(os.path.abspath(__file__))
+_SRC_ROOT = os.path.normpath(os.path.join(_DEV_EVAL_DIR, "..", ".."))
+for _p in (_SRC_ROOT, _DEV_EVAL_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import pandas as pd
 
 from no_context_gen import generate_completions
 from llm_clients import BackendName
+from utils.excel_project_list import normalize_excel_project_columns
 
 EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
 SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
@@ -25,18 +30,6 @@ MODEL_BACKEND_CHOICE = "openai"
 DEFAULT_BASE_SEARCH_OUT = "/data/data_public/riverbag/testRepoSummaryOut/211"
 DEFAULT_BASE_COMPLETION_OUT = "/data/zxl/Search2026/outputData/devEvalCompletionOut"
 SUBFOLDER = "0303_full"
-
-
-def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    """统一列名：项目名称 -> project_name, 项目根目录 -> project_root"""
-    col_map = {}
-    for c in df.columns:
-        c_str = str(c).strip()
-        if c_str in ("项目名称", "project_name"):
-            col_map[c] = "project_name"
-        elif c_str in ("项目根目录", "project_root", "GRAPH_PROJECT_PATH"):
-            col_map[c] = "project_root"
-    return df.rename(columns=col_map)
 
 
 def run_one_project(
@@ -104,7 +97,7 @@ def main() -> None:
     max_tasks = args.max_tasks if args.max_tasks and args.max_tasks > 0 else None
 
     df = pd.read_excel(args.excel_path, sheet_name=args.sheet_name)
-    df = _normalize_column_names(df)
+    df = normalize_excel_project_columns(df)
 
     if "project_name" not in df.columns:
         print("Error: Excel 需包含「项目名称」列（或 project_name）", file=sys.stderr)

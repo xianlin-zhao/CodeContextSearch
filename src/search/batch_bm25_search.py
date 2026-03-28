@@ -3,103 +3,30 @@ import contextlib
 import json
 import os
 import sys
-import traceback
 from typing import Any, Dict, List
+
+_SRC_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+if _SRC_ROOT not in sys.path:
+    sys.path.insert(0, _SRC_ROOT)
 
 import pandas as pd
 
 from bm25_search import analyze_project
+from utils.excel_project_list import (
+    normalize_excel_project_columns,
+    resolve_enre_json_cell,
+)
+from utils.project_rel_from_root import ProjectRelMode, project_rel_from_project_root
 
 
-# EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
-# SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/Source_Code"
-# DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
-# DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow"
-# DEFAULT_OUTPUT_CSV = "/data/zxl/Search2026/outputData/devEvalSearchOut/0316_batch_workflow/bm25_batch_metrics.csv"
-# DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
-
-EXCEL_PATH = "/data/data_public/riverbag/CodeContextSearch/docs/deveval_project_path_stats.xlsx"
-SOURCE_CODE_DIR = "/data/lowcode_public/DevEval_no_tests/Source_Code"
-DEFAULT_BASE_SEARCH_OUT = "/data/data_public/riverbag/testRepoSummaryOut/DevEval"
-DEFAULT_BASE_ENRE = "/data/data_public/riverbag/testRepoSummaryOut/DevEval"
-DEFAULT_OUTPUT_CSV = "/data/data_public/riverbag/testRepoSummaryOut/DevEval/bm25_batch_metrics.csv"
+EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
+SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/Source_Code"
+# 与 data.jsonl 中 project_path 一致：两段（如 System/mrjob, for DevEval）或一段（如 litdata, for EvoCodeBench）
+PROJECT_REL_MODE: ProjectRelMode = "two_segments"
+DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
+DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
+DEFAULT_OUTPUT_CSV = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor/bm25_batch_metrics.csv"
 DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
-
-
-class _Tee:
-    def __init__(self, *streams):
-        self.streams = streams
-
-    def write(self, data: str) -> int:
-        for s in self.streams:
-            s.write(data)
-        return len(data)
-
-    def flush(self) -> None:
-        for s in self.streams:
-            s.flush()
-
-
-def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    col_map = {}
-    for c in df.columns:
-        c_str = str(c).strip()
-        if c_str in ("项目名称", "project_name"):
-            col_map[c] = "project_name"
-        elif c_str in ("项目根目录", "project_root", "GRAPH_PROJECT_PATH"):
-            col_map[c] = "project_root"
-        elif c_str in ("ENRE路径", "enre_json"):
-            col_map[c] = "enre_json"
-    return df.rename(columns=col_map)
-
-
-def _default_enre_path(project_key: str, base_enre: str) -> str:
-    return os.path.join(base_enre, project_key, "report-enre.json")
-
-
-def _project_key_from_project_root(project_root: str, source_code_dir: str, project_name: str) -> str:
-    """
-    从 project_root 中提取项目键（Source_Code 后到第一个 project_name，且包含该段）。
-
-    例如：
-    project_root = /data/lowcode_public/DevEval/Source_Code/System/mrjob/mrjob
-    project_key = System/mrjob
-    """
-    norm_root = os.path.normpath(project_root)
-    norm_source = os.path.normpath(source_code_dir)
-    parts = [p for p in norm_root.split(os.sep) if p]
-    source_parts = [p for p in norm_source.split(os.sep) if p]
-    source_name = source_parts[-1] if source_parts else ""
-    try:
-        idx = parts.index(source_name)
-    except ValueError:
-        # 回退策略：直接取倒数三段中的中间两段
-        if len(parts) >= 3:
-            return "/".join(parts[-3:-1])
-        if len(parts) >= 2:
-            return "/".join(parts[-2:])
-        return parts[-1]
-
-    # 取 Source_Code 之后到第一个 project_name（包含该段）
-    start = idx + 1
-    end = len(parts)
-    if project_name:
-        name_norm = project_name.strip().lower()
-        first_project_idx = -1
-        for i in range(start, len(parts)):
-            if parts[i].lower() == name_norm:
-                first_project_idx = i
-                break
-        if first_project_idx >= start:
-            end = first_project_idx + 1
-
-    sub_parts = parts[start:end]
-    if not sub_parts:
-        # 兜底：至少返回最后两段中的可用部分
-        if len(parts) >= 2:
-            return "/".join(parts[-2:])
-        return parts[-1] if parts else ""
-    return "/".join(sub_parts)
 
 
 def run_one_project(
@@ -110,8 +37,12 @@ def run_one_project(
     base_search_out: str,
     source_code_dir: str,
     data_jsonl: str,
+    *,
+    project_rel_mode: ProjectRelMode,
 ) -> Dict[str, Any]:
-    project_dir = project_key
+    project_dir = project_rel_from_project_root(
+        project_root, source_code_dir, mode=project_rel_mode
+    )
 
     project_base = os.path.join(base_search_out, project_key)
     methods_csv = os.path.join(project_base, "methods.csv")
@@ -194,6 +125,12 @@ def main() -> None:
         help="DevEval 源代码根目录（用于从 project_root 截取 PROJECT_DIR）",
     )
     p.add_argument(
+        "--project_rel_mode",
+        choices=["two_segments", "one_segment"],
+        default=None,
+        help="相对 source_code_dir 截取几段：two_segments=两段，one_segment=一段；默认用脚本顶部 PROJECT_REL_MODE",
+    )
+    p.add_argument(
         "--data_jsonl",
         default=DATA_JSONL,
         help="DevEval 完整数据集 jsonl 路径",
@@ -205,18 +142,12 @@ def main() -> None:
     )
     p.add_argument("--sheet_name", default=0, help="Excel 工作表名或索引")
     args = p.parse_args()
+    project_rel_mode: ProjectRelMode = (
+        args.project_rel_mode if args.project_rel_mode is not None else PROJECT_REL_MODE
+    )
 
-    failed_log_path = os.path.join(args.base_search_out, "batch_bm25_failed_projects.log")
-    os.makedirs(args.base_search_out, exist_ok=True)
-
-    with open(failed_log_path, "w", encoding="utf-8") as log_file:
-        tee_out = _Tee(sys.stdout, log_file)
-        tee_err = _Tee(sys.stderr, log_file)
-        with contextlib.redirect_stdout(tee_out), contextlib.redirect_stderr(tee_err):
-            print(f"[log] Console output is also written to: {failed_log_path}")
-
-            df = pd.read_excel(args.excel_path, sheet_name=args.sheet_name)
-            df = _normalize_column_names(df)
+    df = pd.read_excel(args.excel_path, sheet_name=args.sheet_name)
+    df = normalize_excel_project_columns(df)
 
             if "project_name" not in df.columns or "project_path" not in df.columns:
                 raise SystemExit(
@@ -227,46 +158,24 @@ def main() -> None:
             per_project_rows: List[Dict[str, Any]] = []
             failed_log_lines: List[str] = []
 
-            for _, row in df.iterrows():
-                project_name = str(row["project_name"]).strip()
-                project_root = str(row["project_path"]).strip()
-                if not project_name or not project_root:
-                    continue
-                project_key = _project_key_from_project_root(
-                    project_root=project_root,
-                    source_code_dir=args.source_code_dir,
-                    project_name=project_name,
-                )
-                enre_json = row.get("enre_json")
-                if pd.isna(enre_json) or not str(enre_json).strip():
-                    enre_json = _default_enre_path(project_key, args.base_enre)
-                else:
-                    enre_json = str(enre_json).strip()
+    for _, row in df.iterrows():
+        project_name = str(row["project_name"]).strip()
+        project_root = str(row["project_root"]).strip()
+        if not project_name or not project_root:
+            continue
+        enre_json = resolve_enre_json_cell(row, project_name, args.base_enre)
 
-                try:
-                    metrics = run_one_project(
-                        project_name=project_name,
-                        project_key=project_key,
-                        project_root=project_root,
-                        enre_json=enre_json,
-                        base_search_out=args.base_search_out,
-                        source_code_dir=args.source_code_dir,
-                        data_jsonl=args.data_jsonl,
-                    )
-                except Exception as e:
-                    err_header = (
-                        f"project_name={project_name} | project_key={project_key} | "
-                        f"project_root={project_root} | error={type(e).__name__}: {e}"
-                    )
-                    tb = traceback.format_exc().strip()
-                    print(f"[error] {err_header}")
-                    failed_log_lines.append(err_header)
-                    failed_log_lines.append(tb)
-                    failed_log_lines.append("-" * 80)
-                    continue
-
-                if not metrics:
-                    continue
+        metrics = run_one_project(
+            project_name=project_name,
+            project_root=project_root,
+            enre_json=enre_json,
+            base_search_out=args.base_search_out,
+            source_code_dir=args.source_code_dir,
+            data_jsonl=args.data_jsonl,
+            project_rel_mode=project_rel_mode,
+        )
+        if not metrics:
+            continue
 
                 #_append_rows_for_type(per_project_rows, metrics, project_name, "signature")
                 _append_rows_for_type(per_project_rows, metrics, project_name, "code")
