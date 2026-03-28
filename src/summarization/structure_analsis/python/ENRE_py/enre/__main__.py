@@ -147,7 +147,6 @@ def extract_method_code(file_path: str, start_line: int, end_line: int, project_
         # 尝试多种路径解析方式
         path = None
         tried_paths = []
-        
         # 1. 尝试直接路径（绝对路径或相对当前目录）
         test_path = Path(file_path)
         tried_paths.append(str(test_path.absolute()))
@@ -157,7 +156,7 @@ def extract_method_code(file_path: str, start_line: int, end_line: int, project_
         # 2. 尝试相对于项目根目录的路径
         if not path and project_root:
             potential_path = project_root / file_path
-            print(f"potential_path: {potential_path}")
+            #print(f"potential_path: {potential_path}")
             tried_paths.append(str(potential_path.absolute()))
             if potential_path.exists():
                 path = potential_path

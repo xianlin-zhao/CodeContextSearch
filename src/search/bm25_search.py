@@ -19,21 +19,21 @@ from utils.enre_utils import (
 
 # 默认路径参数，仅用于命令行直接运行本脚本时的便捷入口；
 # 实际批量实验时应通过函数参数传入这些路径。
-PROJECT_DIR = "System/mrjob"
+PROJECT_DIR = "Communications/aioxmpp"
 METHODS_CSV = (
-    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods.csv"
+    "/data/data_public/riverbag/testRepoSummaryOut/DevEval/Communications/aioxmpp/methods.csv"
 )
 METHODS_DESC_CSV = (
-    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/methods_with_desc.csv"
+    "/data/data_public/riverbag/testRepoSummaryOut/DevEval/Communications/aioxmpp/methods_with_desc.csv"
 )
 FILTERED_PATH = (
-    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/filtered.jsonl"
+    "/data/data_public/riverbag/testRepoSummaryOut/DevEval/Communications/aioxmpp/filtered.jsonl"
 )
 REFINED_QUERIES_CACHE_PATH = (
-    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/refined_queries.json"
+    "/data/data_public/riverbag/testRepoSummaryOut/DevEval/Communications/aioxmpp/refined_queries.json"
 )
 ENRE_JSON = (
-    "/data/data_public/riverbag/testRepoSummaryOut/211/mrjob/mrjob-report-enre.json"
+    "/data/data_public/riverbag/testRepoSummaryOut/DevEval/Communications/aioxmpp/report-enre.json"
 )
 # 完整 DevEval 数据集 jsonl 路径
 DATA_JSONL = "/data/zxl/Search2026/DevEval/data.jsonl"
