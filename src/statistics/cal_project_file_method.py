@@ -142,9 +142,11 @@ def _normalize_columns(df) -> Tuple[str, str]:
     cols = list(df.columns)
     normalized = {str(c).strip().lower(): c for c in cols}
     name_col = normalized.get("project_name")
-    path_col = normalized.get("project_path")
+    path_col = normalized.get("project_path") or normalized.get("project_root")
     if name_col is None or path_col is None:
-        raise ValueError(f"Excel 需要包含列 project_name 和 project_path，当前列为: {cols}")
+        raise ValueError(
+            f"Excel 需要包含列 project_name，以及 project_path 或 project_root（项目根目录路径），当前列为: {cols}"
+        )
     return name_col, path_col
 
 

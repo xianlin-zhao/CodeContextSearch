@@ -18,12 +18,12 @@ from utils.excel_project_list import (
 from utils.project_rel_from_root import ProjectRelMode, project_rel_from_project_root
 
 
-EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
-SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/Source_Code"
+EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/docs/EvoCodeBench_5projects.xlsx"
+SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/EvoCodeBench/Source_Code"
 # 截取两段（如 System/mrjob, for DevEval）或一段（如 litdata, for EvoCodeBench）
-PROJECT_REL_MODE: ProjectRelMode = "two_segments"
-DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
-DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
+PROJECT_REL_MODE: ProjectRelMode = "one_segment"
+DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/EvoCodeBenchSearchOut/0330_5projects"
+DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/EvoCodeBenchSearchOut/0330_5projects"
 # Which embedding backend to use for personalization scores.
 #   - "unixcoder": default, UniXcoder-based embeddings
 #   - "bge-code": use BAAI/bge-code-v1 via sentence-transformers

@@ -16,6 +16,7 @@ from utils.feature_generation import generate_feature_description, merge_feature
 from utils.method_summary import method_summary
 import json
 import logging
+import time
 
 
 # 聚类时语义信息采用的策略，目前有：function_name, function_file_name, code_t5, llm
@@ -76,6 +77,8 @@ def main(project_root: str, output_dir: str):
     has_java = any(f.endswith('.java') for root, _, files in os.walk(project_root) for f in files)
     has_python = any(f.endswith('.py') for root, _, files in os.walk(project_root) for f in files)
     
+    start_time = time.time()
+
     # 项目结构分析
     if has_java:
         print("分析Java项目")
@@ -245,6 +248,9 @@ def main(project_root: str, output_dir: str):
     # 保存到CSV
     features_to_csv(feature_list, method_clusters, os.path.join(output_dir, "features.csv"))
 
+    duration_seconds = round(time.time() - start_time, 3)
+    print(f"Duration: {duration_seconds} seconds")
+
     return {
         "project_root": project_root,
         "output_dir": output_dir,
@@ -260,11 +266,13 @@ def main(project_root: str, output_dir: str):
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     # 待总结的项目路径
-    project_root = "/data/zxl/Search2026/Datasets/Source_Code/Database/alembic/alembic"
+    project_root = "/data/zxl/Search2026/Datasets/EvoCodeBench/Source_Code/tanuki_py/src/tanuki"
     # repoSummary结果的保存路径
-    output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/alembic/0321"
+    output_dir = "/data/zxl/Search2026/outputData/repoSummaryOut/EvoCodeBench/tanuki_py"
 
-    main(
+    result = main(
         project_root=project_root,
         output_dir=output_dir
     )
+    # 格式化输出json
+    print(json.dumps(result, indent=4))

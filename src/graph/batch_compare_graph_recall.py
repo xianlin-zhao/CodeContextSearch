@@ -20,11 +20,11 @@ from utils.excel_project_list import (
     resolve_enre_json_cell,
 )
 
-EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
-SOURCE_CODE_DIR = "/data/lowcode_public/DevEval/Source_Code"
-DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
-DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
-DEFAULT_OUTPUT_CSV = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor/batch_compare_graph_recall_summary.csv"
+EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/docs/EvoCodeBench_5projects.xlsx"
+SOURCE_CODE_DIR = "/data/zxl/Search2026/Datasets/EvoCodeBench/Source_Code"
+DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/EvoCodeBenchSearchOut/0330_5projects"
+DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/EvoCodeBenchSearchOut/0330_5projects"
+DEFAULT_OUTPUT_CSV = "/data/zxl/Search2026/outputData/EvoCodeBenchSearchOut/0330_5projects/batch_compare_graph_recall_summary.csv"
 DEBUG = True
 
 

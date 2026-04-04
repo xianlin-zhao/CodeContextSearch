@@ -16,12 +16,10 @@ from utils.excel_project_list import (
 )
 
 
-EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
-DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
-DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor"
-DEFAULT_OUTPUT_CSV = (
-    "/data/zxl/Search2026/outputData/devEvalSearchOut/0324_refactor/build_graph_batch_metrics.csv"
-)
+EXCEL_PATH = "/data/zxl/Search2026/CodeContextSearch/docs/EvoCodeBench_5projects.xlsx"
+DEFAULT_BASE_SEARCH_OUT = "/data/zxl/Search2026/outputData/EvoCodeBenchSearchOut/0330_5projects"
+DEFAULT_BASE_ENRE = "/data/zxl/Search2026/outputData/EvoCodeBenchSearchOut/0330_5projects"
+DEFAULT_OUTPUT_CSV = "/data/zxl/Search2026/outputData/EvoCodeBenchSearchOut/0330_5projects/build_graph_batch_metrics.csv"
 
 
 def run_one_project(
