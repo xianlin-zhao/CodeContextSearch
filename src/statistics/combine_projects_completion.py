@@ -11,15 +11,15 @@ import sys
 import pandas as pd
 
 # excel路径，里面的project_name列是项目名称，用于拼接路径
-DEFAULT_EXCEL = "/data/zxl/Search2026/CodeContextSearch/src/generation/dev_eval/project_to_run/0311_5projects.xlsx"
+DEFAULT_EXCEL = "/data/zxl/Search2026/RepoGraph/docs/0405_5projects_repograph.xlsx"
 # base目录，里面会包含各个项目的文件夹，项目文件夹下会有各自的代码补全结果文件
-DEFAULT_BASE_COMPLETION_OUT = "/data/zxl/Search2026/outputData/devEvalCompletionOut"
+DEFAULT_BASE_COMPLETION_OUT = "/data/zxl/Search2026/outputData/devEvalCompletionOut/0405_repograph"
 # 可能的子目录，比如项目文件夹下嵌套着某个文件夹，代码补全结果文件在这个文件夹里(这里为空表示直接在项目文件夹下)
-DEFAULT_SUBFOLDER = "0318"
+DEFAULT_SUBFOLDER = ""
 # 要合并哪个文件(哪种策略生成的代码)
 DEFAULT_JSONL_FILENAME = "repograph_completion.jsonl"
 # 合并后的jsonl路径
-OUTPUT_COMBINED_JSONL = "/data/zxl/Search2026/outputData/devEvalCompletionOut/0318_repograph/combined_repograph_completion.jsonl"
+OUTPUT_COMBINED_JSONL = "/data/zxl/Search2026/outputData/devEvalCompletionOut/0405_repograph/combined_repograph_completion.jsonl"
 
 
 def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:

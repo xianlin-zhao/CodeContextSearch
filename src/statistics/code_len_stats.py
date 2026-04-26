@@ -19,7 +19,7 @@ import tokenize
 from typing import Iterable
 
 
-DEFAULT_JSONL_PATH = "/data/data_public/riverbag/baselines/318_five_projects_ouput/query_1/test_loop_1/completions/combined_completion.jsonl"
+DEFAULT_JSONL_PATH = "/data/zxl/Search2026/outputData/devEvalCompletionOut/0405_repograph/combined_repograph_completion.jsonl"
 
 _SKIP_TYPES = frozenset(
     {

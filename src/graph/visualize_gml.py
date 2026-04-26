@@ -9,9 +9,9 @@ import json
 app = Flask(__name__)
 
 # BASE_DIR = '/data/zxl/Search2026/outputData'
-BASE_DIR = '/data/zxl/Search2026/outputData/devEvalSearchOut/mrjob/0128/top-15-subgraph'
+BASE_DIR = '/data/data_public/riverbag/testRepoSummaryOut/DevEval/System/mrjob/graph_results_all'
 # Hardcoded path to the filtered jsonl file containing ground truth
-FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/Filited/mrjob/filtered.jsonl'
+FILTERED_JSONL_PATH = '/data/data_public/riverbag/testRepoSummaryOut/DevEval/System/mrjob/filtered.jsonl'
 
 def load_ground_truth(task_id):
     """
@@ -293,4 +293,4 @@ def view_graph(filename):
 
 if __name__ == '__main__':
     # Use 0.0.0.0 to be accessible if needed, though usually localhost is fine in this env
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5090, debug=True)
