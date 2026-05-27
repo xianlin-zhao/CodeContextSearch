@@ -2,31 +2,35 @@
 
 ## 数据集
 
-DevEval位于服务器 `/data/lowcode_public/DevEval`，其中data_have_dependency_cross_file.jsonl是在所有task中包含跨文件API调用的task
+DevEval位于服务器` /data/zxl/Search2026/Datasets/Source_Code`，任务信息在`/data/zxl/Search2026/DevEval/data.jsonl`，`data_have_dependency_cross_file.json`l是在所有task中包含跨文件API调用的task
+
+EvoCodeBench位于服务器`/data/zxl/Search2026/Datasets/EvoCodeBench`，里面的`data.jsonl`是所有task，`data_5projects.jsonl`是选取的5个repo的所有task
 
 
 
 ## 整体流程
 
-目前的流程是这样的：
+整体流程是这样的：
 
-1.使用RepoSummary方法，对于一个repo生成feature summary；
+1.使用RepoSummary，对于一个repo生成feature summary；
 
-2.对于DevEval中这个repo的每一个sample，搜索出结果（有多种搜索方式，优先采用feature top3的方式），都是method；
+2.对于DevEval中某个repo的每一个task，搜索出结果（有多种搜索方式，优先采用feature top3的方式），都是method；
 
 3.对于初步搜索所得的结果，分析这些method之间的关系，建图-**初始图**；
 
-4.基于一些规则，对初始子图的某些节点进行扩展，得到**扩展图**；
+4.基于一些规则，对初始图的某些节点进行扩展，得到**扩展图**；
 
-5.对扩展图的结果进行筛选，保留重要程度较高的节点（节点基础得分+加分，personalized pagerank），作为最终的**推理子图**；
+5.对扩展图的结果进行筛选，保留重要程度较高的节点（节点基础得分+加分，personalized pagerank），作为最终的**推理图**；
 
-6.将推理子图的内容作为context，组织prompt，LLM根据自然语言需求和搜索到的context，生成代码
+6.将推理图的内容作为context，组织prompt，LLM根据自然语言需求和搜索到的context，生成代码
 
 
 
 目前这些步骤是分离的，并没有实现成完整的接口，主要是为了探索每个阶段的方法。
 
-目前的实验都仅在DevEval的个别项目上开展，还没有在完整的benchmark上进行实验。之后除了DevEval，还会再找其他的benchmark (EvoCodeBench)进行实验。
+依赖代码检索的实验在DevEval和EvoCodeBench上开展，代码生成的实验仅在DevEval上开展。
+
+
 
 
 
@@ -41,7 +45,7 @@ OPENAI_BASE_URL=xxxx
 
 在`/src/summarization/main.py`中，配置main中的`project_root`和`output_dir`，再配置`STRATEGY`和`IS_PARALLEL`
 
-在聚类时，分为文件聚类和函数聚类，有很多聚类参数可以调整。建议在给一个repo生成所有的feature summary之前，先看看聚类结果（可以通过设置`GENERATE_DESCRIPTION`来决定是否要生成feature summary，还是只看聚类结果而不生成summary），如果聚类的数量不符合预期，建议先调整参数改进一下效果，然后再生成feature description（毕竟调大模型API是要花钱的hhh）
+在聚类时，分为文件聚类和函数聚类，有很多聚类参数可以调整。建议在给一个repo生成所有的feature summary之前，先看看聚类结果（可以通过设置`GENERATE_DESCRIPTION`来决定是否要生成feature summary，还是只看聚类结果而不生成summary），如果聚类的数量不符合预期，建议先调整参数改进一下效果，然后再生成feature description
 
 跑完整个RepoSummary的过程后会在output_dir下生成一些csv文件：methods.csv, methods_with_desc.csv, file_adj_matrix.csv, method_adj_matrix.csv, features.csv。我们主要关心features.csv和methods.csv，前者包含所有生成的feature，后者包含repo中所有的method信息。
 
@@ -73,9 +77,9 @@ OPENAI_BASE_URL=xxxx
 * FEATURE_CSV：RepoSummary生成的features
 * METHODS_CSV：RepoSummary提取出的repo中所有method的信息
 * ENRE_JSON：enre工具生成的report，json格式
-* FILTERED_PATH：这里可以是新建的文件，用于保存特定repo相关的任务
+* FILTERED_PATH：这里可以是新建的文件，用于保存特定repo相关的任务信息
 * DATA_JSONL：DevEval数据集所有任务的那个jsonl文件
-* NEED_METHOD_NAME_NORM：举例来说，DevEval中代码元素的名称是类似mrjob.xx.yy.zz，但我们RepoSummary如果是作用于完整的repo，就会生成类似mrjob.mrjob.xx.yy.zz，这时候需要将这个变量设置为True，从而进行规范化。如果我们RepoSummary只作用于repo内部mrjob这个文件夹，那会生成mrjob.xx.yy.zz，此时就不需要规范化，设置为False即可
+* NEED_METHOD_NAME_NORM：默认为False。举例来说，DevEval中代码元素的名称是类似mrjob.xx.yy.zz，但我们RepoSummary如果是作用于完整的repo，就会生成类似mrjob.mrjob.xx.yy.zz，这时候需要将这个变量设置为True，从而进行规范化。如果我们RepoSummary只作用于repo内部mrjob这个文件夹，那会生成mrjob.xx.yy.zz，此时就不需要规范化，设置为False即可
 * USE_REFINED_QUERY：可以设置为False。这是为了测试LLM改写搜索词的效果，可以不用
 
 
@@ -97,7 +101,7 @@ OPENAI_BASE_URL=xxxx
 * FILTERED_PATH：这里可以是新建的文件，用于保存特定repo相关的任务
 * DIAGNOSTIC_JSONL：上一步搜索结果的文件
 * OUTPUT_GRAPH_PATH：输出结果保存在哪个文件夹。对于repo的每一个任务，都会生成一个`task_{task_id}_ori.gml`文件，这是networkx库使用的标准格式文件，保存图的节点和边
-* REMOVE_FIRST_DOT_PREFIX：与上面的NEED_METHOD_NAME_NORM类似，现在我们生成的代码元素名称格式与DevEval相同，所以这里默认为False
+* REMOVE_FIRST_DOT_PREFIX：默认为False。与上面的NEED_METHOD_NAME_NORM类似，现在我们生成的代码元素名称格式与DevEval相同，所以这里默认为False
 * PREFIX：如果REMOVE_FIRST_DOT_PREFIX为True，则要注意修改这里的项目名称
 
 另外，DIAGNOSTIC_JSONL的内容较为复杂，在读入搜索结果时，目前使用的是`preds = rec["feature"]["top3"]["predictions"]`的结果来建图（这是根据实验，得到的比较好的结果），也就是选择top3的features关联到的所有methods。
@@ -106,7 +110,7 @@ OPENAI_BASE_URL=xxxx
 
 ### 4. 子图扩展及筛选（推理）
 
-在`/src/graph/`目录下，`expand_and_rank_graph.py`可以基于初始子图，从某些节点沿某些关系进行适当的扩展，目的是找到更多可能相关的context；在扩展之后，为了防止后续输入LLM的context过多，保证只输入重要的context，还会对节点的重要性进行评估，目前使用的personalized pagerank算法。
+在`/src/graph/`目录下，`expand_and_rank_graph_exclude_TM_last.py`可以基于初始图，从某些节点沿某些关系进行适当的扩展，目的是找到更多可能相关的context；在扩展之后，为了防止后续输入LLM的context过多，保证只输入重要的context，还会对节点的重要性进行评估，使用personalized pagerank算法。
 
 运行扩展及筛选的代码时，修改：
 
@@ -114,7 +118,7 @@ OPENAI_BASE_URL=xxxx
 * ENRE_JSON：RepoSummary生成的中间结果，是用xjtu-enre工具对repo做静态分析得到的结果，文件名称通常是xxxx-report-enre.json
 * FILTERED_PATH：这里可以是新建的文件，用于保存特定repo相关的任务
 * OUTPUT_GRAPH_PATH：输出结果保存在哪个文件夹，可以和建图的结果保存在一个文件夹里，对于repo的每一个任务，先会生成一个`task_{task_id}_mid.gml`文件，代表扩展之后的结果，然后会生成`task_{task_id}_rank.gml`，代表pagerank筛选之后，排名top 15的节点所对应的子图
-* PROJECT_PATH：项目源代码路径的**上一层**，比如说项目源代码在`/data/lowcode_public/DevEval/Source_Code/Internet/boto`，这里就应该填`/data/lowcode_public/DevEval/Source_Code/Internet`，这个参数主要是用于跟代码元素所在文件的路径做拼接
+* PROJECT_PATH：项目源代码路径的**上一层**，比如说项目源代码在`/data/lowcode_public/DevEval/Source_Code/Internet/boto`
 * TOP_KS：最终选择top-k分数的节点作为推理子图，保存起来，保存到子文件夹PageRank-{k}-subgraph
 * EMBEDDING_BACKEND_KIND：计算节点分数时，会计算query与节点代码的相似度，选择使用哪种模型进行embedding计算，可以选择"bge-code"或"unixcoder"，前者的效果更好，但速度会略慢
 
@@ -123,6 +127,8 @@ OPENAI_BASE_URL=xxxx
 完成扩展和筛选之后，可运行`compare_graph_recall.py`，能够比较初始搜索后、扩展后、筛选后的召回率，效果提高/降低的任务数量，用于评估各阶段贡献。会生成一个csv文件和log文件。
 
 可运行`visualize_gml.py`，这是为了调试方便，写的一个可视化界面，通过设置BASE_DIR（保存图的文件夹），可以展示这个文件夹下的所有图。
+
+后来为了毕设的case study，另有一个`visualize_gml_interactice.py`，通过设置GML_FILE_PATH，可将图可视化展示。
 
 
 
